@@ -138,11 +138,12 @@ async function upsertContact(msg: IncomingMessage, orgId: string): Promise<strin
     return groupContact.id;
   }
 
-  // User messages: self messages don't create a contact
-  if (msg.isSelf) return null;
+  // User messages: Xác định người gửi/nhận dựa trên isSelf
+  const targetUid = msg.isSelf ? msg.threadId : msg.senderUid;
+  const targetName = msg.isSelf ? 'Khách (Từ Zalo)' : (msg.senderName || 'Unknown');
 
   let contact = await prisma.contact.findFirst({
-    where: { zaloUid: msg.senderUid, orgId },
+    where: { zaloUid: targetUid, orgId },
     select: { id: true, fullName: true },
   });
 
@@ -151,14 +152,14 @@ async function upsertContact(msg: IncomingMessage, orgId: string): Promise<strin
       data: {
         id: randomUUID(),
         orgId,
-        zaloUid: msg.senderUid,
-        fullName: msg.senderName || 'Unknown',
+        zaloUid: targetUid,
+        fullName: targetName,
       },
       select: { id: true, fullName: true },
     });
     // Emit webhook for new contact created
     emitWebhook(orgId, 'contact.created', { contactId: contact.id, fullName: contact.fullName });
-  } else if (msg.senderName && contact.fullName !== msg.senderName) {
+  } else if (!msg.isSelf && msg.senderName && contact.fullName !== msg.senderName) {
     await prisma.contact.update({
       where: { id: contact.id },
       data: { fullName: msg.senderName },
