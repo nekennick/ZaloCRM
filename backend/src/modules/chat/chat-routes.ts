@@ -178,4 +178,56 @@ export async function chatRoutes(app: FastifyInstance) {
 
     return { success: true };
   });
+
+  // ── AI Suggest — generate reply suggestions ─────────────────────────────
+  app.post('/api/v1/conversations/:id/ai-suggest', { preHandler: requireZaloAccess('chat') }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = request.user!;
+    const { id } = request.params as { id: string };
+
+    const conversation = await prisma.conversation.findFirst({
+      where: { id, orgId: user.orgId },
+      select: { id: true },
+    });
+    if (!conversation) return reply.status(404).send({ error: 'Conversation not found' });
+
+    try {
+      const { generateSuggestions } = await import('./ai-suggest.js');
+      const result = await generateSuggestions(id, user.orgId);
+      return result;
+    } catch (err: any) {
+      logger.error('[chat] AI suggest error:', err);
+      return reply.status(400).send({ error: err.message || 'AI gợi ý thất bại' });
+    }
+  });
+
+  // ── AI System Prompt — get current prompt ───────────────────────────────
+  app.get('/api/v1/ai/prompt', async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = request.user!;
+    try {
+      const { getSystemPromptForUI } = await import('./ai-suggest.js');
+      return await getSystemPromptForUI(user.orgId);
+    } catch (err: any) {
+      logger.error('[chat] Get AI prompt error:', err);
+      return reply.status(500).send({ error: 'Lỗi lấy prompt' });
+    }
+  });
+
+  // ── AI System Prompt — save/update prompt ───────────────────────────────
+  app.put('/api/v1/ai/prompt', async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = request.user!;
+    if (user.role !== 'owner' && user.role !== 'admin') {
+      return reply.status(403).send({ error: 'Chỉ Admin/Owner mới được chỉnh sửa prompt' });
+    }
+    const { prompt } = request.body as { prompt: string };
+    if (!prompt?.trim()) return reply.status(400).send({ error: 'Prompt không được rỗng' });
+
+    try {
+      const { saveSystemPrompt } = await import('./ai-suggest.js');
+      await saveSystemPrompt(user.orgId, prompt.trim());
+      return { success: true };
+    } catch (err: any) {
+      logger.error('[chat] Save AI prompt error:', err);
+      return reply.status(500).send({ error: 'Lỗi lưu prompt' });
+    }
+  });
 }

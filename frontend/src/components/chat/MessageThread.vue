@@ -87,8 +87,45 @@
         <div v-if="!loading && messages.length === 0" class="text-center pa-8 text-grey">Chưa có tin nhắn</div>
       </div>
 
+      <!-- AI Suggestions popup -->
+      <div v-if="aiSuggestions.length > 0" class="ai-suggestions pa-2">
+        <div class="d-flex align-center mb-1">
+          <v-icon size="16" color="info" class="mr-1">mdi-robot-outline</v-icon>
+          <span class="text-caption font-weight-bold" style="color: #00F2FF;">AI Gợi ý</span>
+          <v-spacer />
+          <span v-if="aiRemaining !== null" class="text-caption text-grey">Còn {{ aiRemaining }} lượt</span>
+          <v-btn icon size="x-small" variant="text" @click="aiSuggestions = []"><v-icon size="14">mdi-close</v-icon></v-btn>
+        </div>
+        <div
+          v-for="(s, idx) in aiSuggestions"
+          :key="idx"
+          class="ai-suggestion-card pa-2 px-3 mb-1 rounded-lg"
+          @click="pickSuggestion(s.text)"
+        >
+          {{ s.text }}
+        </div>
+      </div>
+
+      <!-- AI Error -->
+      <v-alert v-if="aiError" type="warning" variant="tonal" density="compact" class="mx-2 mb-1" closable @click:close="aiError = ''">
+        {{ aiError }}
+      </v-alert>
+
       <!-- Input -->
       <div class="pa-2 d-flex align-end chat-input-area">
+        <v-btn
+          icon
+          size="small"
+          variant="tonal"
+          color="info"
+          class="mr-2"
+          :loading="aiLoading"
+          :disabled="!conversation"
+          title="AI Gợi ý trả lời"
+          @click="fetchAISuggestions"
+        >
+          <v-icon>mdi-robot-outline</v-icon>
+        </v-btn>
         <v-textarea v-model="inputText" placeholder="Nhập tin nhắn..." variant="solo-filled" density="compact" hide-details auto-grow rows="1" max-rows="3" @keydown.enter.exact.prevent="handleSend" class="flex-grow-1 mr-2" />
         <v-btn icon color="primary" :loading="sending" :disabled="!inputText.trim()" @click="handleSend"><v-icon>mdi-send</v-icon></v-btn>
       </div>
@@ -128,7 +165,34 @@ const previewImageUrl = ref('');
 const showImagePreview = computed({ get: () => !!previewImageUrl.value, set: (v) => { if (!v) previewImageUrl.value = ''; } });
 const syncSnack = ref({ show: false, text: '', color: 'success' });
 
-function handleSend() { if (!inputText.value.trim()) return; emit('send', inputText.value); inputText.value = ''; }
+// AI Suggest state
+const aiSuggestions = ref<{ text: string }[]>([]);
+const aiLoading = ref(false);
+const aiError = ref('');
+const aiRemaining = ref<number | null>(null);
+
+function handleSend() { if (!inputText.value.trim()) return; emit('send', inputText.value); inputText.value = ''; aiSuggestions.value = []; }
+
+async function fetchAISuggestions() {
+  if (!props.conversation?.id) return;
+  aiLoading.value = true;
+  aiError.value = '';
+  aiSuggestions.value = [];
+  try {
+    const res = await api.post(`/conversations/${props.conversation.id}/ai-suggest`);
+    aiSuggestions.value = res.data.suggestions || [];
+    aiRemaining.value = res.data.remaining ?? null;
+  } catch (err: any) {
+    aiError.value = err.response?.data?.error || 'Không thể tạo gợi ý';
+  } finally {
+    aiLoading.value = false;
+  }
+}
+
+function pickSuggestion(text: string) {
+  inputText.value = text;
+  aiSuggestions.value = [];
+}
 function formatMessageTime(d: string) { return new Date(d).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }); }
 function openFile(url: string) { window.open(url, '_blank'); }
 
@@ -229,4 +293,23 @@ watch(() => props.messages.length, async () => { await nextTick(); if (messagesC
 .file-card { display: flex; align-items: center; padding: 8px 12px; border-radius: 8px; background: rgba(0, 242, 255, 0.05); border: 1px solid rgba(0, 242, 255, 0.1); }
 .chat-image { max-width: 100%; max-height: 300px; border-radius: 12px; cursor: pointer; transition: transform 0.2s; }
 .chat-image:hover { transform: scale(1.02); }
+
+/* AI Suggestions */
+.ai-suggestions {
+  border-top: 1px solid rgba(0, 242, 255, 0.15);
+  background: rgba(0, 242, 255, 0.03);
+}
+.ai-suggestion-card {
+  cursor: pointer;
+  border: 1px solid rgba(0, 242, 255, 0.12);
+  background: rgba(0, 242, 255, 0.06);
+  transition: all 0.2s;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+.ai-suggestion-card:hover {
+  background: rgba(0, 242, 255, 0.15);
+  border-color: rgba(0, 242, 255, 0.3);
+  transform: translateX(4px);
+}
 </style>

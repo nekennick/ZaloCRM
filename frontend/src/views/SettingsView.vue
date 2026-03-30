@@ -9,6 +9,10 @@
       <v-tab value="users">Nhân viên</v-tab>
       <v-tab value="teams">Đội nhóm</v-tab>
       <v-tab value="org">Tổ chức</v-tab>
+      <v-tab value="ai">
+        <v-icon class="mr-1" size="18">mdi-robot-outline</v-icon>
+        AI Copilot
+      </v-tab>
     </v-tabs>
 
     <v-window v-model="tab">
@@ -124,6 +128,58 @@
       <v-window-item value="org">
         <OrgSettings />
       </v-window-item>
+
+      <!-- Tab 4: AI Copilot settings -->
+      <v-window-item value="ai">
+        <v-card class="pa-4">
+          <v-card-title class="d-flex align-center">
+            <v-icon class="mr-2" color="info">mdi-robot-outline</v-icon>
+            Cấu hình AI Copilot
+          </v-card-title>
+          <v-card-subtitle class="mb-4">
+            Chỉnh sửa System Prompt để hướng dẫn AI trả lời phù hợp với ngành hàng và phong cách của bạn.
+          </v-card-subtitle>
+
+          <v-divider class="mb-4" />
+
+          <v-alert v-if="aiSettingsSuccess" type="success" variant="tonal" density="compact" class="mb-3" closable @click:close="aiSettingsSuccess = ''">
+            {{ aiSettingsSuccess }}
+          </v-alert>
+
+          <v-alert v-if="aiSettingsError" type="error" variant="tonal" density="compact" class="mb-3" closable @click:close="aiSettingsError = ''">
+            {{ aiSettingsError }}
+          </v-alert>
+
+          <v-textarea
+            v-model="aiPrompt"
+            label="System Prompt"
+            :loading="aiPromptLoading"
+            rows="12"
+            auto-grow
+            variant="outlined"
+            hint="Hướng dẫn cho AI cách trả lời khách hàng. Bao gồm: vai trò, quy tắc, thông tin sản phẩm..."
+            persistent-hint
+          />
+
+          <div class="d-flex align-center mt-3">
+            <v-chip v-if="aiPromptIsDefault" size="small" color="grey" variant="tonal">
+              Đang dùng prompt mặc định
+            </v-chip>
+            <v-chip v-else size="small" color="info" variant="tonal">
+              Prompt tùy chỉnh
+            </v-chip>
+            <v-spacer />
+            <v-btn
+              color="primary"
+              :loading="aiPromptSaving"
+              prepend-icon="mdi-content-save"
+              @click="saveAIPrompt"
+            >
+              Lưu Prompt
+            </v-btn>
+          </div>
+        </v-card>
+      </v-window-item>
     </v-window>
   </div>
 </template>
@@ -148,6 +204,14 @@ const dialogError = ref('');
 const newPassword = ref('');
 const selectedUser = ref<OrgUser | null>(null);
 
+// AI Settings state
+const aiPrompt = ref('');
+const aiPromptLoading = ref(false);
+const aiPromptSaving = ref(false);
+const aiPromptIsDefault = ref(true);
+const aiSettingsSuccess = ref('');
+const aiSettingsError = ref('');
+
 const form = ref({ fullName: '', email: '', password: '', role: 'member' });
 
 const roleOptions = [
@@ -162,6 +226,40 @@ const headers = [
   { title: 'Trạng thái', key: 'isActive', sortable: true },
   { title: 'Hành động', key: 'actions', sortable: false, align: 'end' as const },
 ];
+
+// Load AI prompt when switching to AI tab
+import { watch } from 'vue';
+watch(tab, async (val) => {
+  if (val === 'ai' && !aiPrompt.value) {
+    aiPromptLoading.value = true;
+    try {
+      const { api } = await import('@/api/index');
+      const res = await api.get('/ai/prompt');
+      aiPrompt.value = res.data.prompt || '';
+      aiPromptIsDefault.value = res.data.isDefault ?? true;
+    } catch {
+      aiSettingsError.value = 'Không thể tải prompt';
+    } finally {
+      aiPromptLoading.value = false;
+    }
+  }
+});
+
+async function saveAIPrompt() {
+  aiPromptSaving.value = true;
+  aiSettingsSuccess.value = '';
+  aiSettingsError.value = '';
+  try {
+    const { api } = await import('@/api/index');
+    await api.put('/ai/prompt', { prompt: aiPrompt.value });
+    aiSettingsSuccess.value = 'Đã lưu System Prompt thành công!';
+    aiPromptIsDefault.value = false;
+  } catch (err: any) {
+    aiSettingsError.value = err.response?.data?.error || 'Lỗi lưu prompt';
+  } finally {
+    aiPromptSaving.value = false;
+  }
+}
 
 function roleColor(role: string) {
   if (role === 'owner') return 'primary';

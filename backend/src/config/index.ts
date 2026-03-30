@@ -12,4 +12,9 @@ export const config = {
   uploadDir: process.env.UPLOAD_DIR || '/var/lib/zalo-crm/files',
   appUrl: process.env.APP_URL || 'http://localhost:3000',
   isProduction: process.env.NODE_ENV === 'production',
+
+  // AI — Moonshot (Kimi 2.5)
+  moonshotApiKey: process.env.MOONSHOT_API_KEY || '',
+  moonshotModel: process.env.MOONSHOT_MODEL || 'kimi-k2.5',
+  aiSuggestDailyLimit: parseInt(process.env.AI_SUGGEST_DAILY_LIMIT || '50'),
 };
