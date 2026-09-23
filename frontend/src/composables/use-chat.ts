@@ -53,6 +53,12 @@ export function useChat() {
     conversations.value.find(c => c.id === selectedConvId.value) || null,
   );
 
+  function appendMessageIfMissing(message: Message) {
+    if (!messages.value.some((item) => item.id === message.id)) {
+      messages.value.push(message);
+    }
+  }
+
   async function fetchConversations() {
     loadingConvs.value = true;
     try {
@@ -109,7 +115,7 @@ export function useChat() {
     sendingMsg.value = true;
     try {
       const res = await api.post(`/conversations/${selectedConvId.value}/messages`, { content });
-      messages.value.push(res.data);
+      appendMessageIfMissing(res.data);
     } catch (err) {
       console.error('Failed to send message:', err);
     } finally {
@@ -125,7 +131,7 @@ export function useChat() {
       formData.append('file', file);
       if (caption.trim()) formData.append('caption', caption.trim());
       const res = await api.post(`/conversations/${selectedConvId.value}/attachments`, formData);
-      messages.value.push(res.data);
+      appendMessageIfMissing(res.data);
     } catch (err) {
       console.error('Failed to send attachment:', err);
     } finally {
@@ -140,9 +146,7 @@ export function useChat() {
       // Add to messages if viewing this conversation
       if (data.conversationId === selectedConvId.value) {
         // Avoid duplicates
-        if (!messages.value.find(m => m.id === data.message.id)) {
-          messages.value.push(data.message);
-        }
+        appendMessageIfMissing(data.message);
       }
       // Refresh conversation list to update last message / unread count
       fetchConversations();
