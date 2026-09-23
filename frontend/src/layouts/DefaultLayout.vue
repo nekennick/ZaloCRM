@@ -13,7 +13,7 @@
           <v-icon size="18" color="white">mdi-robot</v-icon>
         </div>
         <v-app-bar-title>
-          <span class="font-weight-bold">Zalo</span><span style="color: #00F2FF;">CRM</span>
+          <span class="font-weight-bold">Yagami</span><span style="color: #00F2FF;">CRM</span>
         </v-app-bar-title>
       </div>
 

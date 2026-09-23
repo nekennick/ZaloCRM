@@ -141,7 +141,7 @@ async function bootstrap() {
 
   // API version banner
   app.get('/api/v1/status', async () => {
-    return { version: '1.0.0', name: 'Zalo CRM' };
+    return { version: '1.0.0', name: 'YagamiCRM' };
   });
 
   // SPA fallback — serve index.html for non-API routes in production
@@ -167,7 +167,7 @@ async function bootstrap() {
 
   try {
     await app.listen({ port: config.port, host: config.host });
-    logger.info(`Zalo CRM running on http://${config.host}:${config.port}`);
+    logger.info(`YagamiCRM running on http://${config.host}:${config.port}`);
     logger.info(`Environment: ${config.nodeEnv}`);
     startAppointmentReminder(io);
     startZaloHealthCheck();
