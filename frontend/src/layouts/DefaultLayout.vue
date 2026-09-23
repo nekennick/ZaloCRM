@@ -6,11 +6,8 @@
 
       <!-- AI Core Orb + Title -->
       <div class="d-flex align-center" style="gap: 12px;">
-        <div
-          class="ai-core-orb d-flex align-center justify-center"
-          style="width: 32px; height: 32px; background: linear-gradient(135deg, #00F2FF, #0077B6);"
-        >
-          <v-icon size="18" color="white">mdi-robot</v-icon>
+        <div class="ai-core-orb d-flex align-center justify-center" style="width: 32px; height: 32px; overflow: hidden;">
+          <img :src="yagamiLogo" alt="YagamiCRM logo" style="width: 100%; height: 100%; object-fit: cover;" />
         </div>
         <v-app-bar-title>
           <span class="font-weight-bold">Yagami</span><span style="color: #00F2FF;">CRM</span>
@@ -88,6 +85,7 @@ import { useAuthStore } from '@/stores/auth';
 import { useRouter } from 'vue-router';
 import NotificationBell from '@/components/NotificationBell.vue';
 import GlobalSearch from '@/components/GlobalSearch.vue';
+import yagamiLogo from '@/logoyagami.jpg';
 
 const theme = useTheme();
 const authStore = useAuthStore();

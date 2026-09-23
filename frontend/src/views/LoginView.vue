@@ -3,9 +3,9 @@
     <div class="text-center mb-8">
       <div
         class="ai-core-orb mx-auto mb-4 d-flex align-center justify-center"
-        style="width: 64px; height: 64px; background: linear-gradient(135deg, #00F2FF, #0077B6);"
+        style="width: 64px; height: 64px; overflow: hidden;"
       >
-        <v-icon size="32" color="white">mdi-robot</v-icon>
+        <img :src="yagamiLogo" alt="YagamiCRM logo" style="width: 100%; height: 100%; object-fit: cover;" />
       </div>
       <h1 class="text-h5 font-weight-bold">Yagami<span style="color: #00F2FF;">CRM</span></h1>
       <p class="text-caption mt-1" style="color: #8892b0;">Liquid Silicon • Multi-Account Zalo Management</p>
@@ -44,6 +44,7 @@
 import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
+import yagamiLogo from '@/logoyagami.jpg';
 
 const email = ref('');
 const password = ref('');
