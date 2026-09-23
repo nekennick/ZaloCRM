@@ -5,7 +5,6 @@ const api = axios.create({
   timeout: 30000,
 });
 
-// JWT interceptor
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('token');
   if (token) {
@@ -14,7 +13,8 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// Response interceptor — handle 401
+let isRedirecting = false;
+
 api.interceptors.response.use(
   (response) => response,
   (error) => {
@@ -22,7 +22,8 @@ api.interceptors.response.use(
       localStorage.removeItem('token');
       // Avoid reloading public auth pages. A transient authenticated request
       // during initial navigation must not create an endless /login loop.
-      if (!['/login', '/setup'].includes(window.location.pathname)) {
+      if (!isRedirecting && !['/login', '/setup'].includes(window.location.pathname)) {
+        isRedirecting = true;
         window.location.replace('/login');
       }
     }

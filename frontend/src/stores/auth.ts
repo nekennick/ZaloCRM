@@ -36,16 +36,29 @@ export const useAuthStore = defineStore('auth', () => {
   async function login(email: string, password: string) {
     const res = await api.post('/auth/login', { email, password });
     token.value = res.data.token;
-    user.value = res.data.user;
     localStorage.setItem('token', res.data.token);
+    // Login response is partial — fetch full profile immediately
+    await fetchProfile();
   }
 
   async function fetchProfile() {
     try {
       const res = await api.get('/profile');
-      user.value = res.data;
-    } catch {
-      logout();
+      const d = res.data;
+      // Map API response to User interface (org.name → orgName)
+      user.value = {
+        id: d.id,
+        email: d.email,
+        fullName: d.fullName || d.full_name || '',
+        role: d.role,
+        orgId: d.orgId || d.org_id || '',
+        orgName: d.org?.name || d.orgName || '',
+      };
+    } catch (err: any) {
+      // Only logout on 401 (invalid token) — not on network errors
+      if (err?.response?.status === 401) {
+        logout();
+      }
     }
   }
 
