@@ -71,7 +71,7 @@ export interface ListenerContext {
   api: any;
   io: Server | null;
   userInfoCache: Map<string, UserInfoCacheEntry>;
-  onDisconnected: (accountId: string) => void;
+  onConnected: (accountId: string) => void;
 }
 
 /**
@@ -79,11 +79,12 @@ export interface ListenerContext {
  * Calls listener.start() with retryOnClose at the end.
  */
 export function attachZaloListener(ctx: ListenerContext): void {
-  const { accountId, api, io, userInfoCache, onDisconnected } = ctx;
+  const { accountId, api, io, userInfoCache, onConnected } = ctx;
   const listener = api.listener;
 
   listener.on('connected', () => {
     logger.info(`[zalo:${accountId}] Listener connected`);
+    onConnected(accountId);
   });
 
   listener.on('message', async (message: any) => {
@@ -148,8 +149,8 @@ export function attachZaloListener(ctx: ListenerContext): void {
 
   listener.on('closed', (code: number, reason: string) => {
     logger.warn(`[zalo:${accountId}] Listener closed: ${code} ${reason}`);
-    onDisconnected(accountId);
-    io?.emit('zalo:disconnected', { accountId, code, reason });
+    // A listener reconnect is not the same as an expired Zalo session.
+    io?.emit('zalo:listener-closed', { accountId, code, reason });
   });
 
   listener.on('error', (err: any) => {

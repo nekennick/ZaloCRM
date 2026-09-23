@@ -167,33 +167,14 @@ class ZaloAccountPool {
       api,
       io: this.io,
       userInfoCache: this.userInfoCache,
-      onDisconnected: (id) => {
+      onConnected: (id) => {
         const inst = this.instances.get(id);
-        if (inst) inst.status = 'disconnected';
-        this.updateAccountDB(id, 'disconnected', null);
-        // Emit webhook for disconnect (fire-and-forget)
-        prisma.zaloAccount.findUnique({ where: { id }, select: { orgId: true } })
-          .then((rec) => rec && emitWebhook(rec.orgId, 'zalo.disconnected', { accountId: id }))
-          .catch(() => {});
+        if (!inst || !inst.api) return;
 
-        // Circuit breaker: track disconnect count per account
-        const now = Date.now();
-        const key = `dc_${id}`;
-        const history = (this.disconnectHistory.get(key) || []).filter(t => now - t < 5 * 60_000);
-        history.push(now);
-        this.disconnectHistory.set(key, history);
-
-        if (history.length >= 5) {
-          // >5 disconnects in 5 min → stop reconnecting, require QR re-login
-          logger.error(`[zalo:${id}] Circuit breaker: ${history.length} disconnects in 5 min — stopping auto-reconnect. QR re-login required.`);
-          this.updateAccountDB(id, 'qr_pending', null);
-          this.io?.emit('zalo:reconnect-failed', { accountId: id, error: 'Session không ổn định, cần đăng nhập QR lại' });
-          this.disconnectHistory.delete(key);
-          return; // DON'T reconnect
-        }
-
-        // Normal auto-reconnect after 30 seconds
-        setTimeout(() => this.autoReconnect(id), 30_000);
+        inst.status = 'connected';
+        inst.lastActivity = new Date();
+        void this.updateAccountDB(id, 'connected', inst.zaloUid ?? null);
+        this.io?.emit('zalo:connected', { accountId: id, zaloUid: inst.zaloUid });
       },
     });
   }
