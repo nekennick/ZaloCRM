@@ -117,6 +117,22 @@ export function useChat() {
     }
   }
 
+  async function sendAttachment(file: File, caption = '') {
+    if (!selectedConvId.value) return;
+    sendingMsg.value = true;
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      if (caption.trim()) formData.append('caption', caption.trim());
+      const res = await api.post(`/conversations/${selectedConvId.value}/attachments`, formData);
+      messages.value.push(res.data);
+    } catch (err) {
+      console.error('Failed to send attachment:', err);
+    } finally {
+      sendingMsg.value = false;
+    }
+  }
+
   function initSocket() {
     socket = io({ transports: ['websocket', 'polling'] });
 
@@ -158,6 +174,7 @@ export function useChat() {
     fetchConversations,
     selectConversation,
     sendMessage,
+    sendAttachment,
     initSocket,
     destroySocket,
   };

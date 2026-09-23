@@ -8,7 +8,9 @@ import cors from '@fastify/cors';
 import fastifyJwt from '@fastify/jwt';
 import rateLimit from '@fastify/rate-limit';
 import fastifyStatic from '@fastify/static';
+import multipart from '@fastify/multipart';
 import { Server } from 'socket.io';
+import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -55,6 +57,10 @@ async function bootstrap() {
     secret: config.jwtSecret,
   });
 
+  await app.register(multipart, {
+    limits: { files: 1, fileSize: 25 * 1024 * 1024 },
+  });
+
   // Rate limiting with higher limits and per-key tracking
   await app.register(rateLimit, {
     max: 1000,
@@ -80,6 +86,12 @@ async function bootstrap() {
     await app.register(fastifyStatic, {
       root: path.join(__dirname, '../static'),
       prefix: '/',
+    });
+    await fs.mkdir(config.uploadDir, { recursive: true });
+    await app.register(fastifyStatic, {
+      root: config.uploadDir,
+      prefix: '/uploads/',
+      decorateReply: false,
     });
   }
 

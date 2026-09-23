@@ -11,6 +11,9 @@ import { zaloRateLimiter } from '../zalo/zalo-rate-limiter.js';
 import { logger } from '../../shared/utils/logger.js';
 import { randomUUID } from 'node:crypto';
 import type { Server } from 'socket.io';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { config } from '../../config/index.js';
 
 type QueryParams = Record<string, string>;
 
@@ -163,6 +166,85 @@ export async function chatRoutes(app: FastifyInstance) {
     } catch (err) {
       logger.error('[chat] Send message error:', err);
       return reply.status(500).send({ error: 'Failed to send message' });
+    }
+  });
+
+  app.post('/api/v1/conversations/:id/attachments', { preHandler: requireZaloAccess('chat') }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = request.user!;
+    const { id } = request.params as { id: string };
+    const upload = await request.file();
+    if (!upload) return reply.status(400).send({ error: 'Chưa chọn tệp để gửi' });
+
+    const originalName = path.basename(upload.filename || 'file').replace(/[^\w.() -]/g, '_');
+    const extension = path.extname(originalName).slice(1).toLowerCase();
+    const allowedExtensions = new Set(['jpg', 'jpeg', 'png', 'webp', 'pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'txt', 'zip']);
+    if (!extension || !allowedExtensions.has(extension)) {
+      return reply.status(400).send({ error: 'Chỉ hỗ trợ ảnh JPG/PNG/WEBP và tệp PDF, Word, Excel, CSV, TXT, ZIP' });
+    }
+
+    const buffer = await upload.toBuffer();
+    if (!buffer.length) return reply.status(400).send({ error: 'Tệp rỗng' });
+    if (upload.file.truncated) return reply.status(413).send({ error: 'Tệp vượt quá giới hạn 25 MB' });
+
+    const conversation = await prisma.conversation.findFirst({
+      where: { id, orgId: user.orgId },
+      include: { zaloAccount: true },
+    });
+    if (!conversation) return reply.status(404).send({ error: 'Conversation not found' });
+
+    const instance = zaloPool.getInstance(conversation.zaloAccountId);
+    if (!instance?.api) return reply.status(400).send({ error: 'Zalo account not connected' });
+    const limits = zaloRateLimiter.checkLimits(conversation.zaloAccountId);
+    if (!limits.allowed) return reply.status(429).send({ error: limits.reason });
+
+    const storageDir = path.join(config.uploadDir, 'chat');
+    const storageName = randomUUID() + '.' + extension;
+    const storagePath = path.join(storageDir, storageName);
+    const isImage = ['jpg', 'jpeg', 'png', 'webp'].includes(extension);
+    const caption = String((upload.fields?.caption as any)?.value || '').trim();
+
+    try {
+      await fs.mkdir(storageDir, { recursive: true });
+      await fs.writeFile(storagePath, buffer);
+      const threadType = conversation.threadType === 'group' ? 1 : 0;
+      zaloRateLimiter.recordSend(conversation.zaloAccountId);
+      await instance.api.sendMessage({
+        msg: caption,
+        attachments: { data: buffer, filename: originalName, metadata: { totalSize: buffer.length } },
+      }, conversation.externalThreadId || '', threadType);
+
+      const attachment = {
+        name: originalName,
+        size: buffer.length,
+        href: '/uploads/chat/' + storageName,
+        mimeType: upload.mimetype,
+      };
+      const message = await prisma.message.create({
+        data: {
+          id: randomUUID(),
+          conversationId: id,
+          senderType: 'self',
+          senderUid: conversation.zaloAccount.zaloUid || '',
+          senderName: 'Staff',
+          content: JSON.stringify(attachment),
+          contentType: isImage ? 'image' : 'file',
+          attachments: [attachment],
+          sentAt: new Date(),
+          repliedByUserId: user.id,
+        },
+      });
+      await prisma.conversation.update({
+        where: { id },
+        data: { lastMessageAt: new Date(), isReplied: true, unreadCount: 0 },
+      });
+
+      const io = (app as any).io as Server;
+      io?.emit('chat:message', { accountId: conversation.zaloAccountId, message, conversationId: id });
+      return message;
+    } catch (err) {
+      await fs.unlink(storagePath).catch(() => {});
+      logger.error('[chat] Send attachment error:', err);
+      return reply.status(500).send({ error: 'Không thể gửi tệp qua Zalo' });
     }
   });
 

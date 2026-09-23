@@ -111,8 +111,23 @@
         {{ aiError }}
       </v-alert>
 
+      <!-- Attachment preview -->
+      <div v-if="selectedImagePreview" class="attachment-preview mx-3 mb-1">
+        <img :src="selectedImagePreview" alt="Ảnh sắp gửi" />
+        <v-btn icon size="x-small" color="error" variant="flat" class="attachment-preview-remove" title="Bỏ ảnh" @click="clearSelectedFile">
+          <v-icon size="14">mdi-close</v-icon>
+        </v-btn>
+      </div>
+
       <!-- Input -->
       <div class="pa-2 d-flex align-end chat-input-area">
+        <input
+          ref="fileInput"
+          type="file"
+          class="d-none"
+          accept=".jpg,.jpeg,.png,.webp,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.zip"
+          @change="handleFileSelect"
+        />
         <v-btn
           icon
           size="small"
@@ -126,8 +141,9 @@
         >
           <v-icon>mdi-robot-outline</v-icon>
         </v-btn>
-        <v-textarea v-model="inputText" placeholder="Nhập tin nhắn..." variant="solo-filled" density="compact" hide-details auto-grow rows="1" max-rows="3" @keydown.enter.exact.prevent="handleSend" class="flex-grow-1 mr-2" />
-        <v-btn icon color="primary" :loading="sending" :disabled="!inputText.trim()" @click="handleSend"><v-icon>mdi-send</v-icon></v-btn>
+        <v-btn icon size="small" variant="tonal" color="info" class="mr-2" :disabled="!conversation" title="Gửi ảnh hoặc tệp" @click="fileInput?.click()"><v-icon>mdi-paperclip</v-icon></v-btn>
+        <v-textarea v-model="inputText" placeholder="Nhập tin nhắn..." variant="solo-filled" density="compact" hide-details auto-grow rows="1" max-rows="3" @keydown.enter.exact.prevent="handleSend" @paste="handlePaste" class="flex-grow-1 mr-2" />
+        <v-btn icon color="primary" :loading="sending" :disabled="!inputText.trim() && !selectedFile" @click="handleSend"><v-icon>mdi-send</v-icon></v-btn>
       </div>
     </template>
 
@@ -145,7 +161,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, nextTick, computed } from 'vue';
+import { ref, watch, nextTick, computed, onBeforeUnmount } from 'vue';
 import type { Conversation, Message } from '@/composables/use-chat';
 import { api } from '@/api/index';
 
@@ -157,9 +173,16 @@ const props = defineProps<{
   showContactPanel?: boolean;
 }>();
 
-const emit = defineEmits<{ send: [content: string]; 'toggle-contact-panel': [] }>();
+const emit = defineEmits<{
+  send: [content: string];
+  'send-attachment': [file: File, caption: string];
+  'toggle-contact-panel': [];
+}>();
 
 const inputText = ref('');
+const fileInput = ref<HTMLInputElement | null>(null);
+const selectedFile = ref<File | null>(null);
+const selectedImagePreview = ref('');
 const messagesContainer = ref<HTMLElement | null>(null);
 const previewImageUrl = ref('');
 const showImagePreview = computed({ get: () => !!previewImageUrl.value, set: (v) => { if (!v) previewImageUrl.value = ''; } });
@@ -171,7 +194,58 @@ const aiLoading = ref(false);
 const aiError = ref('');
 const aiRemaining = ref<number | null>(null);
 
-function handleSend() { if (!inputText.value.trim()) return; emit('send', inputText.value); inputText.value = ''; aiSuggestions.value = []; }
+const acceptedExtensions = new Set(['jpg', 'jpeg', 'png', 'webp', 'pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'txt', 'zip']);
+
+function setSelectedFile(file: File) {
+  const extension = file.name.split('.').pop()?.toLowerCase() || '';
+  if (!acceptedExtensions.has(extension)) {
+    syncSnack.value = { show: true, text: 'Chỉ hỗ trợ ảnh JPG/PNG/WEBP và tệp PDF, Word, Excel, CSV, TXT, ZIP', color: 'warning' };
+    return;
+  }
+  if (file.size > 25 * 1024 * 1024) {
+    syncSnack.value = { show: true, text: 'Tệp vượt quá giới hạn 25 MB', color: 'warning' };
+    return;
+  }
+  clearSelectedFile();
+  selectedFile.value = file;
+  if (file.type.startsWith('image/')) {
+    selectedImagePreview.value = URL.createObjectURL(file);
+  }
+}
+
+function handleFileSelect(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  if (file) setSelectedFile(file);
+  input.value = '';
+}
+
+function handlePaste(event: ClipboardEvent) {
+  const file = Array.from(event.clipboardData?.files || []).find((item) => item.type.startsWith('image/'));
+  if (!file) return;
+  event.preventDefault();
+  const extension = file.type.split('/')[1] || 'png';
+  setSelectedFile(new File([file], 'anh-da-dan-' + Date.now() + '.' + extension, { type: file.type }));
+}
+
+function clearSelectedFile() {
+  if (selectedImagePreview.value) URL.revokeObjectURL(selectedImagePreview.value);
+  selectedImagePreview.value = '';
+  selectedFile.value = null;
+}
+
+function handleSend() {
+  if (selectedFile.value) {
+    emit('send-attachment', selectedFile.value, inputText.value);
+    clearSelectedFile();
+  } else if (inputText.value.trim()) {
+    emit('send', inputText.value);
+  } else {
+    return;
+  }
+  inputText.value = '';
+  aiSuggestions.value = [];
+}
 
 async function fetchAISuggestions() {
   if (!props.conversation?.id) return;
@@ -219,6 +293,11 @@ function getFileInfo(msg: Message): { name: string; size: string; href: string }
   try {
     const p = JSON.parse(msg.content);
     const params = typeof p.params === 'string' ? JSON.parse(p.params) : p.params;
+    if (p.name && typeof p.size === 'number') {
+      const bytes = p.size;
+      const size = bytes > 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+      return { name: p.name, size, href: p.href || '' };
+    }
     if (params?.fileExt || params?.fType === 1) {
       const bytes = parseInt(params.fileSize || '0');
       const size = bytes > 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.round(bytes / 1024)} KB`;
@@ -285,6 +364,7 @@ async function syncAppointment(msg: Message) {
 }
 
 watch(() => props.messages.length, async () => { await nextTick(); if (messagesContainer.value) messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight; });
+onBeforeUnmount(clearSelectedFile);
 </script>
 
 <style scoped>
@@ -293,6 +373,9 @@ watch(() => props.messages.length, async () => { await nextTick(); if (messagesC
 .file-card { display: flex; align-items: center; padding: 8px 12px; border-radius: 8px; background: rgba(0, 242, 255, 0.05); border: 1px solid rgba(0, 242, 255, 0.1); }
 .chat-image { max-width: 100%; max-height: 300px; border-radius: 12px; cursor: pointer; transition: transform 0.2s; }
 .chat-image:hover { transform: scale(1.02); }
+.attachment-preview { position: relative; width: fit-content; padding: 4px; border-radius: 10px; background: rgba(0, 242, 255, 0.08); border: 1px solid rgba(0, 242, 255, 0.28); }
+.attachment-preview img { display: block; width: 72px; height: 72px; object-fit: cover; border-radius: 7px; }
+.attachment-preview-remove { position: absolute; top: -7px; right: -7px; min-width: 22px !important; width: 22px !important; height: 22px !important; }
 
 /* AI Suggestions */
 .ai-suggestions {
