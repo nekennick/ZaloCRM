@@ -57,6 +57,10 @@ async function bootstrap() {
   await app.register(rateLimit, {
     max: 500,
     timeWindow: '1 minute',
+    // Rate-limit API traffic only. Applying the global limiter to SPA assets
+    // can exhaust a client's quota while the browser loads/retries bundles,
+    // leaving even the page navigation request with a 429 JSON response.
+    allowList: (request) => !request.url.startsWith('/api/'),
   });
 
   // Serve compiled frontend assets in production

@@ -20,7 +20,11 @@ api.interceptors.response.use(
   (error) => {
     if (error.response?.status === 401) {
       localStorage.removeItem('token');
-      window.location.href = '/login';
+      // Avoid reloading public auth pages. A transient authenticated request
+      // during initial navigation must not create an endless /login loop.
+      if (!['/login', '/setup'].includes(window.location.pathname)) {
+        window.location.replace('/login');
+      }
     }
     return Promise.reject(error);
   },

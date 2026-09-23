@@ -9,4 +9,10 @@ const app = createApp(App);
 app.use(createPinia());
 app.use(router);
 app.use(vuetify);
-app.mount('#app');
+
+// Wait for the initial navigation before mounting. Otherwise App.vue briefly
+// renders DefaultLayout for /login or /setup, which fires authenticated API
+// requests and can trigger a hard-reload loop on 401 responses.
+router.isReady().then(() => {
+  app.mount('#app');
+});
