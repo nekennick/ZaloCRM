@@ -31,14 +31,15 @@
       <!-- Messages -->
       <div ref="messagesContainer" class="flex-grow-1 overflow-y-auto pa-3 chat-messages-area">
         <v-progress-linear v-if="loading" indeterminate color="primary" class="mb-2" />
-        <div v-for="msg in messages" :key="msg.id" class="message-row d-flex" :class="msg.senderType === 'self' ? 'justify-end' : 'justify-start'">
-          <v-avatar v-if="msg.senderType !== 'self'" size="32" color="grey-lighten-2" class="message-avatar mr-2">
-            <v-img v-if="conversation.contact?.avatarUrl" :src="conversation.contact.avatarUrl" />
+        <div v-for="(msg, index) in messages" :key="msg.id" class="message-row d-flex" :class="[msg.senderType === 'self' ? 'justify-end' : 'justify-start', { 'message-grouped': isGroupedWithPrevious(msg, index) }]">
+          <v-avatar v-if="msg.senderType !== 'self' && !isGroupedWithPrevious(msg, index)" size="32" color="grey-lighten-2" class="message-avatar mr-2">
+            <v-img v-if="msg.senderAvatarUrl || (conversation.threadType !== 'group' && conversation.contact?.avatarUrl)" :src="msg.senderAvatarUrl || conversation.contact?.avatarUrl || ''" />
             <v-icon v-else-if="conversation.threadType === 'group'" size="18">mdi-account-group</v-icon>
             <v-icon v-else size="18">mdi-account</v-icon>
           </v-avatar>
+          <div v-else-if="msg.senderType !== 'self'" class="message-avatar-spacer mr-2" />
           <div class="message-stack">
-            <div v-if="conversation.threadType === 'group' && msg.senderType !== 'self'" class="message-sender mb-1">
+            <div v-if="conversation.threadType === 'group' && msg.senderType !== 'self' && !isGroupedWithPrevious(msg, index)" class="message-sender mb-1">
               {{ msg.senderName || 'Unknown' }}
             </div>
             <div class="message-bubble" :class="msg.senderType === 'self' ? 'message-self' : 'message-contact'" @contextmenu.prevent.stop="openMessageMenu($event, msg)">
@@ -309,6 +310,20 @@ function replySenderName(message: NonNullable<Message['replyTo']>) {
   return message.senderName || (message.senderType === 'self' ? 'Bạn' : 'Tin nhắn');
 }
 
+function isGroupedWithPrevious(message: Message, index: number) {
+  if (index === 0) return false;
+  const previous = props.messages[index - 1];
+  if (message.senderType !== previous.senderType) return false;
+  if (message.senderType !== 'self') {
+    const sameSender = message.senderUid && previous.senderUid
+      ? message.senderUid === previous.senderUid
+      : message.senderName === previous.senderName;
+    if (!sameSender) return false;
+  }
+  const gap = new Date(message.sentAt).getTime() - new Date(previous.sentAt).getTime();
+  return gap >= 0 && gap <= 30 * 60 * 1000;
+}
+
 function handleDeleteMessage(message: Message) {
   closeMessageMenu();
   if (!window.confirm('Xóa tin nhắn này khỏi CRM? Tin nhắn trên Zalo sẽ không bị thu hồi.')) return;
@@ -486,7 +501,9 @@ onBeforeUnmount(() => {
 .chat-header-status { margin-top: 1px; color: #738197; font-size: 0.7rem; }
 .chat-messages-area { padding: 18px 22px !important; background: #eef0f4; }
 .message-row { align-items: flex-end; margin-bottom: 8px; }
+.message-row.message-grouped { margin-top: -4px; margin-bottom: 4px; }
 .message-avatar { flex-shrink: 0; margin-bottom: 2px; border: 1px solid #d9dee5; }
+.message-avatar-spacer { flex: 0 0 32px; width: 32px; }
 .message-stack { max-width: 66%; min-width: 0; }
 .message-sender { padding-left: 12px; color: #5f6f86; font-size: 0.72rem; font-weight: 500; }
 .message-bubble { padding: 9px 13px; overflow: hidden; color: #223553; font-size: 0.9rem; line-height: 1.42; word-wrap: break-word; border: 1px solid #d9dee5; border-radius: 8px; box-shadow: 0 1px 1px rgba(28, 39, 54, 0.07); }

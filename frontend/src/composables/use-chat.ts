@@ -32,7 +32,9 @@ export interface Message {
   content: string | null;
   contentType: string;
   senderType: string;
+  senderUid: string | null;
   senderName: string | null;
+  senderAvatarUrl: string | null;
   sentAt: string;
   isDeleted: boolean;
   zaloMsgId: string | null;

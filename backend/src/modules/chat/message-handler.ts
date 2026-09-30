@@ -11,6 +11,7 @@ export interface IncomingMessage {
   accountId: string;
   senderUid: string;
   senderName: string;       // zaloName (from cache or dName fallback)
+  senderAvatarUrl?: string;
   content: string;
   contentType: string;      // text, image, sticker, video, voice, gif, link, file
   msgId: string;
@@ -30,6 +31,7 @@ export interface HandleMessageResult {
     senderType: string;
     senderUid: string | null;
     senderName: string | null;
+    senderAvatarUrl: string | null;
     content: string | null;
     contentType: string;
     attachments: any;
@@ -67,6 +69,7 @@ export async function handleIncomingMessage(
         senderType: msg.isSelf ? 'self' : 'contact',
         senderUid: msg.senderUid,
         senderName: msg.senderName || null,
+        senderAvatarUrl: msg.senderAvatarUrl || null,
         content: msg.content || '',
         contentType: msg.contentType || 'text',
         attachments: msg.attachments ?? [],

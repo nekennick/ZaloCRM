@@ -165,6 +165,7 @@ model Message {
   senderType      String    @map("sender_type") // self, contact
   senderUid       String?   @map("sender_uid")
   senderName      String?   @map("sender_name")
+  senderAvatarUrl String?   @map("sender_avatar_url")
   content         String?
   contentType     String    @default("text") @map("content_type") // text, image, file, sticker, voice, video, link
   attachments     Json      @default("[]")
