@@ -63,7 +63,7 @@ function onFilterAccount(id: string | null) {
 const showContactPanel = ref(false);
 
 // Resizable panel widths (restored from localStorage)
-const leftWidth = ref(parseInt(localStorage.getItem('chat-left-width') || '320'));
+const leftWidth = ref(parseInt(localStorage.getItem('chat-left-width') || '340'));
 const rightWidth = ref(parseInt(localStorage.getItem('chat-right-width') || '320'));
 
 let resizing: 'left' | 'right' | null = null;
@@ -84,7 +84,7 @@ function onResize(e: MouseEvent) {
   if (!resizing) return;
   const diff = e.clientX - startX;
   if (resizing === 'left') {
-    leftWidth.value = Math.max(200, Math.min(500, startWidth + diff));
+    leftWidth.value = Math.max(280, Math.min(500, startWidth + diff));
   } else {
     rightWidth.value = Math.max(250, Math.min(500, startWidth - diff));
   }
@@ -115,13 +115,17 @@ watch(searchQuery, () => {
 <style scoped>
 .chat-container {
   margin: -12px;
+  overflow: hidden;
+  color: #172b4d;
+  background: #eef0f4;
 }
 
 .chat-panel-left {
   position: relative;
   flex-shrink: 0;
-  min-width: 200px;
+  min-width: 280px;
   max-width: 500px;
+  background: #fff;
 }
 
 .chat-panel-right {
@@ -129,6 +133,7 @@ watch(searchQuery, () => {
   flex-shrink: 0;
   min-width: 250px;
   max-width: 500px;
+  background: #fff;
 }
 
 /* Resize handle — thin vertical line on the edge */
@@ -146,7 +151,7 @@ watch(searchQuery, () => {
 
 .resize-handle:hover,
 .resize-handle:active {
-  background: rgba(0, 242, 255, 0.3);
+  background: rgba(0, 104, 255, 0.28);
 }
 
 .resize-handle-left {

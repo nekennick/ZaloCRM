@@ -139,15 +139,22 @@ html, body {
 
 /* Timestamp inside self bubble — high contrast */
 .msg-time-self {
-  color: rgba(255, 255, 255, 0.65) !important;
+  color: #6f7d91 !important;
 }
 
 /* Received messages - left aligned */
-.message-bubble:not(.bg-primary) {
-  background: linear-gradient(135deg, rgba(0, 242, 255, 0.08), rgba(0, 242, 255, 0.03)) !important;
-  border: 1px solid rgba(0, 242, 255, 0.15) !important;
-  border-radius: 4px 24px 24px 24px !important;
-  color: #E6F1FF !important;
+.message-bubble.message-contact {
+  background: #FFFFFF !important;
+  border: 1px solid #D9DEE5 !important;
+  border-radius: 8px !important;
+  color: #223553 !important;
+}
+
+.message-bubble.message-self {
+  background: #d9efff !important;
+  border: 1px solid #c8e3f7 !important;
+  border-radius: 8px !important;
+  color: #223553 !important;
 }
 
 /* Timestamp inside received bubble — high contrast */
@@ -155,7 +162,7 @@ html, body {
   color: #6a7ea0 !important;
 }
 
-.v-theme--light .message-bubble:not(.bg-primary) {
+.v-theme--light .message-bubble.message-contact {
   background: #EAECF0 !important;
   border: 1px solid rgba(0, 0, 0, 0.06) !important;
   color: #1a1a1a !important;
@@ -166,7 +173,7 @@ html, body {
 }
 
 .v-theme--light .msg-time-self {
-  color: rgba(255, 255, 255, 0.75) !important;
+  color: #6f7d91 !important;
 }
 
 /* Chat input area */

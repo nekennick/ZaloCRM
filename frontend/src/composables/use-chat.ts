@@ -36,6 +36,14 @@ export interface Message {
   sentAt: string;
   isDeleted: boolean;
   zaloMsgId: string | null;
+  replyTo?: {
+    id: string;
+    senderName: string | null;
+    senderType: string;
+    content: string | null;
+    contentType: string;
+    isDeleted: boolean;
+  } | null;
 }
 
 export function useChat() {
@@ -110,11 +118,11 @@ export function useChat() {
     }
   }
 
-  async function sendMessage(content: string) {
+  async function sendMessage(content: string, replyToMessageId?: string) {
     if (!selectedConvId.value || !content.trim()) return;
     sendingMsg.value = true;
     try {
-      const res = await api.post(`/conversations/${selectedConvId.value}/messages`, { content });
+      const res = await api.post(`/conversations/${selectedConvId.value}/messages`, { content, replyToMessageId });
       appendMessageIfMissing(res.data);
     } catch (err) {
       console.error('Failed to send message:', err);
@@ -123,13 +131,14 @@ export function useChat() {
     }
   }
 
-  async function sendAttachment(file: File, caption = '') {
+  async function sendAttachment(file: File, caption = '', replyToMessageId?: string) {
     if (!selectedConvId.value) return;
     sendingMsg.value = true;
     try {
       const formData = new FormData();
       formData.append('file', file);
       if (caption.trim()) formData.append('caption', caption.trim());
+      if (replyToMessageId) formData.append('replyToMessageId', replyToMessageId);
       const res = await api.post(`/conversations/${selectedConvId.value}/attachments`, formData);
       appendMessageIfMissing(res.data);
     } catch (err) {

@@ -1,5 +1,5 @@
 <template>
-  <div class="message-thread d-flex flex-column flex-grow-1" style="height: 100%;">
+  <div class="message-thread d-flex flex-column flex-grow-1">
     <!-- Empty state -->
     <div v-if="!conversation" class="d-flex align-center justify-center flex-grow-1">
       <div class="text-center text-grey">
@@ -10,15 +10,15 @@
 
     <template v-else>
       <!-- Header -->
-      <div class="pa-3 d-flex align-center" style="border-bottom: 1px solid var(--border-glow, rgba(0,242,255,0.1));">
-        <v-avatar size="36" color="grey-lighten-2" class="mr-3">
+      <div class="chat-header pa-3 d-flex align-center">
+        <v-avatar size="42" color="grey-lighten-2" class="mr-3 chat-header-avatar">
           <v-icon v-if="conversation.threadType === 'group'" icon="mdi-account-group" />
           <v-img v-else-if="conversation.contact?.avatarUrl" :src="conversation.contact.avatarUrl" />
           <v-icon v-else icon="mdi-account" />
         </v-avatar>
-        <div class="flex-grow-1">
-          <div class="font-weight-medium">{{ conversation.contact?.fullName || 'Unknown' }}</div>
-          <div class="text-caption text-grey">{{ conversation.zaloAccount?.displayName || 'Zalo' }}</div>
+        <div class="flex-grow-1 chat-header-info">
+          <div class="chat-header-name font-weight-medium">{{ conversation.contact?.fullName || 'Unknown' }}</div>
+          <div class="chat-header-status">{{ conversation.threadType === 'group' ? 'Nhóm trò chuyện' : 'Đang hoạt động' }}</div>
         </div>
         <v-btn
           :icon="showContactPanel ? 'mdi-account-details' : 'mdi-account-details-outline'"
@@ -31,12 +31,21 @@
       <!-- Messages -->
       <div ref="messagesContainer" class="flex-grow-1 overflow-y-auto pa-3 chat-messages-area">
         <v-progress-linear v-if="loading" indeterminate color="primary" class="mb-2" />
-        <div v-for="msg in messages" :key="msg.id" class="mb-2 d-flex" :class="msg.senderType === 'self' ? 'justify-end' : 'justify-start'">
-          <div style="max-width: 70%;">
-            <div v-if="conversation.threadType === 'group' && msg.senderType !== 'self'" class="text-caption mb-1" style="color: #00F2FF; font-weight: 500;">
+        <div v-for="msg in messages" :key="msg.id" class="message-row d-flex" :class="msg.senderType === 'self' ? 'justify-end' : 'justify-start'">
+          <v-avatar v-if="msg.senderType !== 'self'" size="32" color="grey-lighten-2" class="message-avatar mr-2">
+            <v-img v-if="conversation.contact?.avatarUrl" :src="conversation.contact.avatarUrl" />
+            <v-icon v-else-if="conversation.threadType === 'group'" size="18">mdi-account-group</v-icon>
+            <v-icon v-else size="18">mdi-account</v-icon>
+          </v-avatar>
+          <div class="message-stack">
+            <div v-if="conversation.threadType === 'group' && msg.senderType !== 'self'" class="message-sender mb-1">
               {{ msg.senderName || 'Unknown' }}
             </div>
-            <div class="message-bubble pa-2 px-3 rounded-lg" :class="msg.senderType === 'self' ? 'bg-primary text-white' : 'bg-white'" style="word-wrap: break-word;" @contextmenu.prevent.stop="openMessageMenu($event, msg)">
+            <div class="message-bubble" :class="msg.senderType === 'self' ? 'message-self' : 'message-contact'" @contextmenu.prevent.stop="openMessageMenu($event, msg)">
+              <div v-if="msg.replyTo" class="message-reply-quote">
+                <div class="message-reply-name">{{ replySenderName(msg.replyTo) }}</div>
+                <div class="message-reply-content">{{ replyText(msg.replyTo) }}</div>
+              </div>
               <!-- Deleted -->
               <div v-if="msg.isDeleted" class="text-decoration-line-through font-italic" style="opacity: 0.6;">
                 {{ msg.content || '(tin nhắn)' }}<span class="text-caption"> (đã thu hồi)</span>
@@ -90,9 +99,12 @@
               <!-- Default text -->
               <div v-else>{{ parseDisplayContent(msg.content) }}</div>
               <!-- Timestamp -->
-              <div class="text-caption mt-1 msg-time" :class="msg.senderType === 'self' ? 'msg-time-self' : 'msg-time-contact'" style="font-size: 0.7rem;">
+              <div class="msg-time mt-1" :class="msg.senderType === 'self' ? 'msg-time-self' : 'msg-time-contact'">
                 {{ formatMessageTime(msg.sentAt) }}
               </div>
+            </div>
+            <div v-if="msg.senderType === 'self'" class="message-delivery-status">
+              <v-icon size="12">mdi-check</v-icon> Đã gửi
             </div>
           </div>
         </div>
@@ -203,8 +215,8 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  send: [content: string];
-  'send-attachment': [file: File, caption: string];
+  send: [content: string, replyToMessageId?: string];
+  'send-attachment': [file: File, caption: string, replyToMessageId?: string];
   'delete-message': [messageId: string];
   'toggle-contact-panel': [];
 }>();
@@ -285,9 +297,16 @@ function startReply(message: Message) {
   nextTick(() => document.querySelector<HTMLTextAreaElement>('.chat-input-area textarea')?.focus());
 }
 
-function replyText(message: Message) {
+function replyText(message: Pick<Message, 'content' | 'contentType' | 'isDeleted'>) {
+  if (message.isDeleted) return 'Tin nhắn đã bị xoá';
+  if (message.contentType === 'image') return 'Hình ảnh';
+  if (message.contentType === 'file') return 'Tệp đính kèm';
   const text = parseDisplayContent(message.content);
   return text.length > 100 ? text.slice(0, 100) + '…' : text;
+}
+
+function replySenderName(message: NonNullable<Message['replyTo']>) {
+  return message.senderName || (message.senderType === 'self' ? 'Bạn' : 'Tin nhắn');
 }
 
 function handleDeleteMessage(message: Message) {
@@ -298,10 +317,10 @@ function handleDeleteMessage(message: Message) {
 
 function handleSend() {
   if (selectedFile.value) {
-    emit('send-attachment', selectedFile.value, inputText.value);
+    emit('send-attachment', selectedFile.value, inputText.value, replyingTo.value?.id);
     clearSelectedFile();
   } else if (inputText.value.trim()) {
-    emit('send', inputText.value);
+    emit('send', inputText.value, replyingTo.value?.id);
   } else {
     return;
   }
@@ -459,37 +478,52 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.message-bubble { box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1); }
-.reminder-card { padding: 8px 12px; border-left: 3px solid #FFB74D; border-radius: 8px; background: rgba(255, 183, 77, 0.08); }
-.file-card { display: flex; align-items: center; padding: 8px 12px; border-radius: 8px; background: rgba(0, 242, 255, 0.05); border: 1px solid rgba(0, 242, 255, 0.1); }
-.location-card { display: flex; align-items: center; min-width: 250px; padding: 10px 12px; border-radius: 10px; cursor: pointer; background: rgba(255, 82, 82, 0.08); border: 1px solid rgba(255, 82, 82, 0.25); }
-.location-card:hover { background: rgba(255, 82, 82, 0.14); }
+.message-thread { height: 100%; min-width: 0; color: #172b4d; background: #eef0f4; }
+.chat-header { z-index: 2; min-height: 66px; color: #172b4d; background: #fff; border-bottom: 1px solid #dfe3e8; box-shadow: 0 1px 2px rgba(28, 39, 54, 0.04); }
+.chat-header-avatar { border: 1px solid #e0e4e9; }
+.chat-header-info { min-width: 0; }
+.chat-header-name { overflow: hidden; color: #172b4d; font-size: 0.96rem; text-overflow: ellipsis; white-space: nowrap; }
+.chat-header-status { margin-top: 1px; color: #738197; font-size: 0.7rem; }
+.chat-messages-area { padding: 18px 22px !important; background: #eef0f4; }
+.message-row { align-items: flex-end; margin-bottom: 8px; }
+.message-avatar { flex-shrink: 0; margin-bottom: 2px; border: 1px solid #d9dee5; }
+.message-stack { max-width: 66%; min-width: 0; }
+.message-sender { padding-left: 12px; color: #5f6f86; font-size: 0.72rem; font-weight: 500; }
+.message-bubble { padding: 9px 13px; overflow: hidden; color: #223553; font-size: 0.9rem; line-height: 1.42; word-wrap: break-word; border: 1px solid #d9dee5; border-radius: 8px; box-shadow: 0 1px 1px rgba(28, 39, 54, 0.07); }
+.message-contact { background: #fff; }
+.message-self { background: #d9efff; border-color: #c8e3f7; }
+.message-reply-quote { margin-bottom: 8px; padding: 8px 10px; overflow: hidden; color: #365170; background: #c9def7; border-left: 3px solid #0068ff; border-radius: 3px; }
+.message-reply-name { color: #263c5a; font-size: 0.75rem; font-weight: 600; }
+.message-reply-content { margin-top: 2px; overflow: hidden; color: #536d89; font-size: 0.77rem; text-overflow: ellipsis; white-space: nowrap; }
+.message-delivery-status { display: flex; align-items: center; justify-content: flex-end; gap: 2px; margin-top: 3px; color: #8793a3; font-size: 0.66rem; }
+.msg-time { color: #6f7d91; font-size: 0.65rem; line-height: 1.2; }
+.msg-time-self { text-align: right; }
+.reminder-card { padding: 8px 12px; background: #fff8e8; border-left: 3px solid #f4ad37; border-radius: 6px; }
+.file-card { display: flex; align-items: center; padding: 8px 10px; background: #f4f6f8; border: 1px solid #e0e5ea; border-radius: 7px; }
+.location-card { display: flex; align-items: center; min-width: 250px; padding: 10px 12px; cursor: pointer; background: #fff7f6; border: 1px solid #f1d2cf; border-radius: 8px; }
+.location-card:hover { background: #fff0ee; }
 .location-address { margin-top: 2px; line-height: 1.35; opacity: 0.8; }
 .location-coordinates { margin-top: 4px; opacity: 0.55; }
-.chat-image { max-width: 100%; max-height: 300px; border-radius: 12px; cursor: pointer; transition: transform 0.2s; }
-.chat-image:hover { transform: scale(1.02); }
-.message-context-menu { position: fixed; z-index: 2500; min-width: 190px; border-radius: 8px; overflow: hidden; background: #173452; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35); border: 1px solid rgba(0, 242, 255, 0.22); }
-.reply-preview { display: flex; align-items: center; max-width: 420px; padding: 7px 10px; border-left: 3px solid #00cfe8; border-radius: 6px; background: rgba(0, 242, 255, 0.08); }
-.attachment-preview { position: relative; width: fit-content; padding: 4px; border-radius: 10px; background: rgba(0, 242, 255, 0.08); border: 1px solid rgba(0, 242, 255, 0.28); }
-.attachment-preview img { display: block; width: 72px; height: 72px; object-fit: cover; border-radius: 7px; }
+.chat-image { display: block; max-width: 100%; max-height: 300px; cursor: pointer; border-radius: 8px; transition: transform 0.2s; }
+.chat-image:hover { transform: scale(1.01); }
+.message-context-menu { position: fixed; z-index: 2500; min-width: 190px; overflow: hidden; color: #172b4d; background: #fff; border: 1px solid #dfe3e8; border-radius: 8px; box-shadow: 0 8px 24px rgba(28, 39, 54, 0.18); }
+.message-context-menu :deep(.v-list) { color: #172b4d; background: #fff !important; }
+.message-context-menu :deep(.v-list-item:hover) { background: #f2f6fa; }
+.reply-preview { display: flex; align-items: center; max-width: 460px; padding: 7px 10px; color: #44546b; background: #f2f4f7; border-left: 3px solid #0068ff; border-radius: 4px; }
+.attachment-preview { position: relative; width: fit-content; padding: 4px; background: #fff; border: 1px solid #d9dee5; border-radius: 8px; box-shadow: 0 1px 3px rgba(28, 39, 54, 0.1); }
+.attachment-preview img { display: block; width: 72px; height: 72px; object-fit: cover; border-radius: 6px; }
 .attachment-preview-remove { position: absolute; top: -7px; right: -7px; min-width: 22px !important; width: 22px !important; height: 22px !important; }
+.chat-input-area { flex-shrink: 0; padding: 9px 12px !important; background: #fff; border-top: 1px solid #dfe3e8; }
+.chat-input-area :deep(.v-field) { color: #172b4d; background: #f1f3f5 !important; border-radius: 18px; box-shadow: none !important; }
+.chat-input-area :deep(textarea) { color: #223553 !important; font-size: 0.9rem; }
+.chat-input-area :deep(textarea::placeholder) { color: #8491a3; opacity: 1; }
+.chat-input-area :deep(.v-btn) { box-shadow: none; }
+.ai-suggestions { color: #172b4d; background: #fff; border-top: 1px solid #dfe3e8; }
+.ai-suggestion-card { cursor: pointer; color: #33445e; background: #f5f8fb; border: 1px solid #dfe5eb; border-radius: 7px; font-size: 0.9rem; line-height: 1.4; transition: all 0.2s; }
+.ai-suggestion-card:hover { background: #eaf3ff; border-color: #b8d7ff; transform: translateX(3px); }
 
-/* AI Suggestions */
-.ai-suggestions {
-  border-top: 1px solid rgba(0, 242, 255, 0.15);
-  background: rgba(0, 242, 255, 0.03);
-}
-.ai-suggestion-card {
-  cursor: pointer;
-  border: 1px solid rgba(0, 242, 255, 0.12);
-  background: rgba(0, 242, 255, 0.06);
-  transition: all 0.2s;
-  font-size: 0.9rem;
-  line-height: 1.4;
-}
-.ai-suggestion-card:hover {
-  background: rgba(0, 242, 255, 0.15);
-  border-color: rgba(0, 242, 255, 0.3);
-  transform: translateX(4px);
+@media (max-width: 900px) {
+  .chat-messages-area { padding: 14px 12px !important; }
+  .message-stack { max-width: 78%; }
 }
 </style>

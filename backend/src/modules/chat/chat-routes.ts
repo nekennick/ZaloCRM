@@ -100,6 +100,11 @@ export async function chatRoutes(app: FastifyInstance) {
     const [messages, total] = await Promise.all([
       prisma.message.findMany({
         where: { conversationId: id },
+        include: {
+          replyTo: {
+            select: { id: true, senderName: true, senderType: true, content: true, contentType: true, isDeleted: true },
+          },
+        },
         orderBy: { sentAt: 'desc' },
         skip: (parseInt(page) - 1) * parseInt(limit),
         take: parseInt(limit),
@@ -114,7 +119,7 @@ export async function chatRoutes(app: FastifyInstance) {
   app.post('/api/v1/conversations/:id/messages', { preHandler: requireZaloAccess('chat') }, async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.user!;
     const { id } = request.params as { id: string };
-    const { content } = request.body as { content: string };
+    const { content, replyToMessageId } = request.body as { content: string; replyToMessageId?: string };
 
     if (!content?.trim()) return reply.status(400).send({ error: 'Content required' });
 
@@ -123,6 +128,14 @@ export async function chatRoutes(app: FastifyInstance) {
       include: { zaloAccount: true },
     });
     if (!conversation) return reply.status(404).send({ error: 'Conversation not found' });
+
+    if (replyToMessageId) {
+      const repliedMessage = await prisma.message.findFirst({
+        where: { id: replyToMessageId, conversationId: id },
+        select: { id: true },
+      });
+      if (!repliedMessage) return reply.status(400).send({ error: 'Tin nhắn được trả lời không hợp lệ' });
+    }
 
     const instance = zaloPool.getInstance(conversation.zaloAccountId);
     if (!instance?.api) return reply.status(400).send({ error: 'Zalo account not connected' });
@@ -151,7 +164,13 @@ export async function chatRoutes(app: FastifyInstance) {
           content,
           contentType: 'text',
           sentAt: new Date(),
+          replyToMessageId: replyToMessageId || null,
           repliedByUserId: user.id,
+        },
+        include: {
+          replyTo: {
+            select: { id: true, senderName: true, senderType: true, content: true, contentType: true, isDeleted: true },
+          },
         },
       });
 
@@ -203,6 +222,15 @@ export async function chatRoutes(app: FastifyInstance) {
     const storagePath = path.join(storageDir, storageName);
     const isImage = ['jpg', 'jpeg', 'png', 'webp'].includes(extension);
     const caption = String((upload.fields?.caption as any)?.value || '').trim();
+    const replyToMessageId = String((upload.fields?.replyToMessageId as any)?.value || '').trim();
+
+    if (replyToMessageId) {
+      const repliedMessage = await prisma.message.findFirst({
+        where: { id: replyToMessageId, conversationId: id },
+        select: { id: true },
+      });
+      if (!repliedMessage) return reply.status(400).send({ error: 'Tin nhắn được trả lời không hợp lệ' });
+    }
 
     try {
       await fs.mkdir(storageDir, { recursive: true });
@@ -231,7 +259,13 @@ export async function chatRoutes(app: FastifyInstance) {
           contentType: isImage ? 'image' : 'file',
           attachments: [attachment],
           sentAt: new Date(),
+          replyToMessageId: replyToMessageId || null,
           repliedByUserId: user.id,
+        },
+        include: {
+          replyTo: {
+            select: { id: true, senderName: true, senderType: true, content: true, contentType: true, isDeleted: true },
+          },
         },
       });
       await prisma.conversation.update({
