@@ -42,6 +42,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
+import { io, type Socket } from 'socket.io-client';
 import { api } from '@/api/index';
 
 interface Notification {
@@ -55,6 +56,7 @@ interface Notification {
 const notifications = ref<Notification[]>([]);
 const router = useRouter();
 let interval: ReturnType<typeof setInterval>;
+let socket: Socket | null = null;
 
 async function fetchNotifications() {
   try {
@@ -75,7 +77,12 @@ function handleClick(n: Notification) {
 onMounted(() => {
   fetchNotifications();
   interval = setInterval(fetchNotifications, 60000);
+  socket = io({ transports: ['websocket', 'polling'] });
+  socket.on('notifications:updated', fetchNotifications);
 });
 
-onUnmounted(() => clearInterval(interval));
+onUnmounted(() => {
+  clearInterval(interval);
+  socket?.disconnect();
+});
 </script>

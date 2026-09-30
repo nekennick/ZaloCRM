@@ -22,6 +22,7 @@
       :sending="sendingMsg"
       @send="sendMessage"
       @send-attachment="sendAttachment"
+      @delete-message="deleteMessage"
       @toggle-contact-panel="showContactPanel = !showContactPanel"
       :show-contact-panel="showContactPanel"
       style="flex: 1; min-width: 300px;"
@@ -50,7 +51,7 @@ import { useChat } from '@/composables/use-chat';
 const {
   conversations, selectedConvId, selectedConv, messages,
   loadingConvs, loadingMsgs, sendingMsg, searchQuery, accountFilter,
-  fetchConversations, selectConversation, sendMessage, sendAttachment,
+  fetchConversations, selectConversation, sendMessage, sendAttachment, deleteMessage,
   initSocket, destroySocket,
 } = useChat();
 

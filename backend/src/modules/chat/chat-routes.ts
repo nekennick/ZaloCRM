@@ -5,6 +5,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { authMiddleware } from '../auth/auth-middleware.js';
+import { requireRole } from '../auth/role-middleware.js';
 import { requireZaloAccess } from '../zalo/zalo-access-middleware.js';
 import { zaloPool } from '../zalo/zalo-pool.js';
 import { zaloRateLimiter } from '../zalo/zalo-rate-limiter.js';
@@ -260,6 +261,61 @@ export async function chatRoutes(app: FastifyInstance) {
 
     return { success: true };
   });
+
+  // CRM-only deletion: the Zalo message itself is not recalled.
+  app.delete(
+    '/api/v1/conversations/:conversationId/messages/:messageId',
+    { preHandler: requireRole('owner', 'admin') },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const user = request.user!;
+      const { conversationId, messageId } = request.params as { conversationId: string; messageId: string };
+
+      const deleted = await prisma.$transaction(async (tx) => {
+        const message = await tx.message.findFirst({
+          where: { id: messageId, conversationId, conversation: { orgId: user.orgId } },
+          select: { id: true, content: true },
+        });
+        if (!message) return null;
+
+        await tx.message.delete({ where: { id: messageId } });
+        const lastMessage = await tx.message.findFirst({
+          where: { conversationId, isDeleted: false },
+          orderBy: { sentAt: 'desc' },
+          select: { senderType: true, sentAt: true },
+        });
+
+        // Notification "unreplied" is computed from this status.
+        await tx.conversation.update({
+          where: { id: conversationId },
+          data: lastMessage
+            ? {
+                lastMessageAt: lastMessage.sentAt,
+                isReplied: lastMessage.senderType === 'self',
+                ...(lastMessage.senderType === 'self' ? { unreadCount: 0 } : {}),
+              }
+            : { lastMessageAt: null, isReplied: true, unreadCount: 0 },
+        });
+        return message;
+      });
+
+      if (!deleted) return reply.status(404).send({ error: 'Không tìm thấy tin nhắn' });
+
+      try {
+        const data = deleted.content ? JSON.parse(deleted.content) : null;
+        const href = typeof data?.href === 'string' ? data.href : '';
+        if (href.startsWith('/uploads/chat/')) {
+          await fs.unlink(path.join(config.uploadDir, 'chat', path.basename(href))).catch(() => {});
+        }
+      } catch {
+        // Text messages and external attachments have no local file to remove.
+      }
+
+      const io = (app as any).io as Server;
+      io?.emit('chat:message-deleted', { conversationId, messageId });
+      io?.emit('notifications:updated', { orgId: user.orgId });
+      return { success: true };
+    },
+  );
 
   // ── AI Suggest — generate reply suggestions ─────────────────────────────
   app.post('/api/v1/conversations/:id/ai-suggest', { preHandler: requireZaloAccess('chat') }, async (request: FastifyRequest, reply: FastifyReply) => {

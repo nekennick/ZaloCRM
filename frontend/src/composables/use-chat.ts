@@ -139,6 +139,17 @@ export function useChat() {
     }
   }
 
+  async function deleteMessage(messageId: string) {
+    if (!selectedConvId.value) return;
+    try {
+      await api.delete(`/conversations/${selectedConvId.value}/messages/${messageId}`);
+      messages.value = messages.value.filter((message) => message.id !== messageId);
+      await fetchConversations();
+    } catch (err) {
+      console.error('Failed to delete message:', err);
+    }
+  }
+
   function initSocket() {
     socket = io({ transports: ['websocket', 'polling'] });
 
@@ -157,6 +168,13 @@ export function useChat() {
       if (msg) {
         msg.isDeleted = true;
       }
+    });
+
+    socket.on('chat:message-deleted', (data: { conversationId: string; messageId: string }) => {
+      if (data.conversationId === selectedConvId.value) {
+        messages.value = messages.value.filter((message) => message.id !== data.messageId);
+      }
+      fetchConversations();
     });
   }
 
@@ -179,6 +197,7 @@ export function useChat() {
     selectConversation,
     sendMessage,
     sendAttachment,
+    deleteMessage,
     initSocket,
     destroySocket,
   };

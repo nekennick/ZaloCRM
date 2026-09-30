@@ -36,7 +36,7 @@
             <div v-if="conversation.threadType === 'group' && msg.senderType !== 'self'" class="text-caption mb-1" style="color: #00F2FF; font-weight: 500;">
               {{ msg.senderName || 'Unknown' }}
             </div>
-            <div class="message-bubble pa-2 px-3 rounded-lg" :class="msg.senderType === 'self' ? 'bg-primary text-white' : 'bg-white'" style="word-wrap: break-word;">
+            <div class="message-bubble pa-2 px-3 rounded-lg" :class="msg.senderType === 'self' ? 'bg-primary text-white' : 'bg-white'" style="word-wrap: break-word;" @contextmenu.prevent.stop="openMessageMenu($event, msg)">
               <!-- Deleted -->
               <div v-if="msg.isDeleted" class="text-decoration-line-through font-italic" style="opacity: 0.6;">
                 {{ msg.content || '(tin nhắn)' }}<span class="text-caption"> (đã thu hồi)</span>
@@ -54,6 +54,18 @@
                 </div>
                 <v-btn v-if="getFileInfo(msg)!.href" icon size="x-small" variant="text" @click="openFile(getFileInfo(msg)!.href)">
                   <v-icon size="16">mdi-download</v-icon>
+                </v-btn>
+              </div>
+              <!-- Location -->
+              <div v-else-if="getLocationInfo(msg)" class="location-card" @click.stop="openLocation(getLocationInfo(msg)!.mapsUrl)">
+                <v-icon size="28" color="error" class="mr-2">mdi-map-marker</v-icon>
+                <div class="flex-grow-1">
+                  <div class="text-body-2 font-weight-medium">{{ getLocationInfo(msg)!.title }}</div>
+                  <div class="text-caption location-address">{{ getLocationInfo(msg)!.address }}</div>
+                  <div class="text-caption location-coordinates">{{ getLocationInfo(msg)!.latitude.toFixed(6) }}, {{ getLocationInfo(msg)!.longitude.toFixed(6) }}</div>
+                </div>
+                <v-btn icon size="x-small" color="primary" variant="text" title="Mở trên bản đồ" @click.stop="openLocation(getLocationInfo(msg)!.mapsUrl)">
+                  <v-icon size="18">mdi-open-in-new</v-icon>
                 </v-btn>
               </div>
               <!-- Sticker/Video/Voice/GIF -->
@@ -87,6 +99,13 @@
         <div v-if="!loading && messages.length === 0" class="text-center pa-8 text-grey">Chưa có tin nhắn</div>
       </div>
 
+      <div v-if="contextMenuMessage" class="message-context-menu" :style="{ left: contextMenuPosition.x + 'px', top: contextMenuPosition.y + 'px' }" @click.stop>
+        <v-list density="compact" class="py-1">
+          <v-list-item prepend-icon="mdi-reply-outline" title="Trả lời tin nhắn" @click="startReply(contextMenuMessage)" />
+          <v-list-item v-if="canDeleteMessages" prepend-icon="mdi-delete-outline" title="Xóa tin nhắn" base-color="error" @click="handleDeleteMessage(contextMenuMessage)" />
+        </v-list>
+      </div>
+
       <!-- AI Suggestions popup -->
       <div v-if="aiSuggestions.length > 0" class="ai-suggestions pa-2">
         <div class="d-flex align-center mb-1">
@@ -110,6 +129,15 @@
       <v-alert v-if="aiError" type="warning" variant="tonal" density="compact" class="mx-2 mb-1" closable @click:close="aiError = ''">
         {{ aiError }}
       </v-alert>
+
+      <div v-if="replyingTo" class="reply-preview mx-3 mb-1">
+        <v-icon size="16" class="mr-2">mdi-reply-outline</v-icon>
+        <div class="flex-grow-1 text-truncate">
+          <div class="text-caption font-weight-medium">Trả lời {{ replyingTo.senderName || 'tin nhắn' }}</div>
+          <div class="text-caption text-truncate">{{ replyText(replyingTo) }}</div>
+        </div>
+        <v-btn icon size="x-small" variant="text" @click="replyingTo = null"><v-icon size="15">mdi-close</v-icon></v-btn>
+      </div>
 
       <!-- Attachment preview -->
       <div v-if="selectedImagePreview" class="attachment-preview mx-3 mb-1">
@@ -161,9 +189,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, nextTick, computed, onBeforeUnmount } from 'vue';
+import { ref, watch, nextTick, computed, onMounted, onBeforeUnmount } from 'vue';
 import type { Conversation, Message } from '@/composables/use-chat';
 import { api } from '@/api/index';
+import { useAuthStore } from '@/stores/auth';
 
 const props = defineProps<{
   conversation: Conversation | null;
@@ -176,13 +205,19 @@ const props = defineProps<{
 const emit = defineEmits<{
   send: [content: string];
   'send-attachment': [file: File, caption: string];
+  'delete-message': [messageId: string];
   'toggle-contact-panel': [];
 }>();
 
+const authStore = useAuthStore();
+const canDeleteMessages = computed(() => authStore.isAdmin);
 const inputText = ref('');
 const fileInput = ref<HTMLInputElement | null>(null);
 const selectedFile = ref<File | null>(null);
 const selectedImagePreview = ref('');
+const replyingTo = ref<Message | null>(null);
+const contextMenuMessage = ref<Message | null>(null);
+const contextMenuPosition = ref({ x: 0, y: 0 });
 const messagesContainer = ref<HTMLElement | null>(null);
 const previewImageUrl = ref('');
 const showImagePreview = computed({ get: () => !!previewImageUrl.value, set: (v) => { if (!v) previewImageUrl.value = ''; } });
@@ -234,6 +269,33 @@ function clearSelectedFile() {
   selectedFile.value = null;
 }
 
+function openMessageMenu(event: MouseEvent, message: Message) {
+  contextMenuPosition.value = {
+    x: Math.min(event.clientX, window.innerWidth - 210),
+    y: Math.min(event.clientY, window.innerHeight - 110),
+  };
+  contextMenuMessage.value = message;
+}
+
+function closeMessageMenu() { contextMenuMessage.value = null; }
+
+function startReply(message: Message) {
+  replyingTo.value = message;
+  closeMessageMenu();
+  nextTick(() => document.querySelector<HTMLTextAreaElement>('.chat-input-area textarea')?.focus());
+}
+
+function replyText(message: Message) {
+  const text = parseDisplayContent(message.content);
+  return text.length > 100 ? text.slice(0, 100) + '…' : text;
+}
+
+function handleDeleteMessage(message: Message) {
+  closeMessageMenu();
+  if (!window.confirm('Xóa tin nhắn này khỏi CRM? Tin nhắn trên Zalo sẽ không bị thu hồi.')) return;
+  emit('delete-message', message.id);
+}
+
 function handleSend() {
   if (selectedFile.value) {
     emit('send-attachment', selectedFile.value, inputText.value);
@@ -245,6 +307,7 @@ function handleSend() {
   }
   inputText.value = '';
   aiSuggestions.value = [];
+  replyingTo.value = null;
 }
 
 async function fetchAISuggestions() {
@@ -307,6 +370,30 @@ function getFileInfo(msg: Message): { name: string; size: string; href: string }
   return null;
 }
 
+function getLocationInfo(msg: Message): { title: string; address: string; latitude: number; longitude: number; mapsUrl: string } | null {
+  if (!msg.content?.startsWith('{')) return null;
+  try {
+    const payload = JSON.parse(msg.content);
+    const params = typeof payload.params === 'string' ? JSON.parse(payload.params) : payload.params;
+    const latitude = Number(params?.latitude);
+    const longitude = Number(params?.longitude);
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+
+    const address = String(payload.description || payload.title || 'Vị trí được chia sẻ');
+    return {
+      title: payload.title || 'Vị trí đã chia sẻ',
+      address,
+      latitude,
+      longitude,
+      mapsUrl: `https://www.google.com/maps?q=${latitude},${longitude}`,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function openLocation(url: string) { window.open(url, '_blank', 'noopener,noreferrer'); }
+
 function parseDisplayContent(content: string | null): string {
   if (!content) return '';
   if (!content.startsWith('{')) return content;
@@ -364,15 +451,25 @@ async function syncAppointment(msg: Message) {
 }
 
 watch(() => props.messages.length, async () => { await nextTick(); if (messagesContainer.value) messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight; });
-onBeforeUnmount(clearSelectedFile);
+onMounted(() => document.addEventListener('click', closeMessageMenu));
+onBeforeUnmount(() => {
+  clearSelectedFile();
+  document.removeEventListener('click', closeMessageMenu);
+});
 </script>
 
 <style scoped>
 .message-bubble { box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1); }
 .reminder-card { padding: 8px 12px; border-left: 3px solid #FFB74D; border-radius: 8px; background: rgba(255, 183, 77, 0.08); }
 .file-card { display: flex; align-items: center; padding: 8px 12px; border-radius: 8px; background: rgba(0, 242, 255, 0.05); border: 1px solid rgba(0, 242, 255, 0.1); }
+.location-card { display: flex; align-items: center; min-width: 250px; padding: 10px 12px; border-radius: 10px; cursor: pointer; background: rgba(255, 82, 82, 0.08); border: 1px solid rgba(255, 82, 82, 0.25); }
+.location-card:hover { background: rgba(255, 82, 82, 0.14); }
+.location-address { margin-top: 2px; line-height: 1.35; opacity: 0.8; }
+.location-coordinates { margin-top: 4px; opacity: 0.55; }
 .chat-image { max-width: 100%; max-height: 300px; border-radius: 12px; cursor: pointer; transition: transform 0.2s; }
 .chat-image:hover { transform: scale(1.02); }
+.message-context-menu { position: fixed; z-index: 2500; min-width: 190px; border-radius: 8px; overflow: hidden; background: #173452; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35); border: 1px solid rgba(0, 242, 255, 0.22); }
+.reply-preview { display: flex; align-items: center; max-width: 420px; padding: 7px 10px; border-left: 3px solid #00cfe8; border-radius: 6px; background: rgba(0, 242, 255, 0.08); }
 .attachment-preview { position: relative; width: fit-content; padding: 4px; border-radius: 10px; background: rgba(0, 242, 255, 0.08); border: 1px solid rgba(0, 242, 255, 0.28); }
 .attachment-preview img { display: block; width: 72px; height: 72px; object-fit: cover; border-radius: 7px; }
 .attachment-preview-remove { position: absolute; top: -7px; right: -7px; min-width: 22px !important; width: 22px !important; height: 22px !important; }

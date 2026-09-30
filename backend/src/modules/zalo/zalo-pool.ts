@@ -40,6 +40,7 @@ class ZaloAccountPool {
   private userInfoCache = new Map<string, UserInfoCacheEntry>();
   // Circuit breaker: track disconnect timestamps per account
   private disconnectHistory = new Map<string, number[]>();
+  private listenerRecoveryTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   setIO(io: Server): void {
     this.io = io;
@@ -171,10 +172,33 @@ class ZaloAccountPool {
         const inst = this.instances.get(id);
         if (!inst || !inst.api) return;
 
+        const recoveryTimer = this.listenerRecoveryTimers.get(id);
+        if (recoveryTimer) clearTimeout(recoveryTimer);
+        this.listenerRecoveryTimers.delete(id);
         inst.status = 'connected';
         inst.lastActivity = new Date();
         void this.updateAccountDB(id, 'connected', inst.zaloUid ?? null);
         this.io?.emit('zalo:connected', { accountId: id, zaloUid: inst.zaloUid });
+      },
+      onClosed: (id, code, reason) => {
+        const inst = this.instances.get(id);
+        if (!inst) return;
+
+        // retryOnClose gets a short grace period. If the SDK does not emit a
+        // fresh connected event, rebuild the listener from the saved session.
+        inst.status = 'connecting';
+        inst.lastActivity = new Date();
+        const existingTimer = this.listenerRecoveryTimers.get(id);
+        if (existingTimer) clearTimeout(existingTimer);
+
+        const timer = setTimeout(() => {
+          this.listenerRecoveryTimers.delete(id);
+          const current = this.instances.get(id);
+          if (!current || current.status === 'connected') return;
+          logger.warn(`[zalo:${id}] Listener did not recover after close ${code} ${reason}; rebuilding session listener`);
+          void this.autoReconnect(id);
+        }, 15_000);
+        this.listenerRecoveryTimers.set(id, timer);
       },
     });
   }
@@ -230,6 +254,9 @@ class ZaloAccountPool {
 
   // Stop listener and remove from pool
   disconnect(accountId: string): void {
+    const recoveryTimer = this.listenerRecoveryTimers.get(accountId);
+    if (recoveryTimer) clearTimeout(recoveryTimer);
+    this.listenerRecoveryTimers.delete(accountId);
     const instance = this.instances.get(accountId);
     if (instance?.api?.listener) {
       try { instance.api.listener.stop(); } catch (err) {
