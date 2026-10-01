@@ -23,6 +23,7 @@ model Organization {
   dailyStats    DailyMessageStat[]
   settings      AppSetting[]
   orders        Order[]
+  projectUpdates ProjectUpdate[]
 
   @@map("organizations")
 }
@@ -62,6 +63,8 @@ model User {
   repliedMessages  Message[]           @relation("RepliedMessages")
   activityLogs     ActivityLog[]
   createdOrders    Order[]             @relation("CreatedOrders")
+  createdProjectUpdates ProjectUpdate[]
+  projectUpdateReads ProjectUpdateRead[]
 
   @@map("users")
 }
@@ -256,6 +259,39 @@ model AppSetting {
 
   @@unique([orgId, settingKey])
   @@map("app_settings")
+}
+
+// Project release notes shown to users through the notification bell.
+model ProjectUpdate {
+  id              String   @id @default(uuid())
+  orgId           String   @map("org_id")
+  title           String
+  description     String
+  version         String?
+  authorName      String?  @map("author_name")
+  sourceKey       String?  @map("source_key")
+  createdByUserId String?  @map("created_by_user_id")
+  publishedAt     DateTime @default(now()) @map("published_at")
+
+  org       Organization       @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  createdBy User?              @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+  reads     ProjectUpdateRead[]
+
+  @@map("project_updates")
+}
+
+// Per-user read receipt so an update only contributes to that user's badge until opened.
+model ProjectUpdateRead {
+  id              String   @id @default(uuid())
+  projectUpdateId String   @map("project_update_id")
+  userId          String   @map("user_id")
+  readAt          DateTime @default(now()) @map("read_at")
+
+  projectUpdate ProjectUpdate @relation(fields: [projectUpdateId], references: [id], onDelete: Cascade)
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectUpdateId, userId])
+  @@map("project_update_reads")
 }
 
 // Sales order linked to a contact (and optionally a conversation)

@@ -63,6 +63,12 @@ const routes = [
     meta: { requiresAuth: true },
   },
   {
+    path: '/project-updates',
+    name: 'ProjectUpdates',
+    component: () => import('@/views/ProjectUpdatesView.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
     path: '/api-settings',
     name: 'ApiSettings',
     component: () => import('@/views/ApiSettingsView.vue'),

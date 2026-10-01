@@ -67,7 +67,18 @@ async function fetchNotifications() {
   }
 }
 
-function handleClick(n: Notification) {
+async function handleClick(n: Notification) {
+  if (n.id.startsWith('project-update-')) {
+    const updateId = n.id.slice('project-update-'.length);
+    try {
+      await api.post(`/notifications/project-updates/${updateId}/read`);
+      await fetchNotifications();
+    } catch {
+      // Keep the notification visible if it could not be marked as read.
+    }
+    router.push('/project-updates');
+    return;
+  }
   if (n.id === 'unreplied') router.push('/chat');
   else if (n.id.startsWith('apt-')) router.push('/appointments');
   else if (n.id.startsWith('zalo-')) router.push('/zalo-accounts');

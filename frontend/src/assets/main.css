@@ -44,6 +44,19 @@ html, body {
   animation: flow-bg 15s ease infinite;
 }
 
+/* Keep the animated application background visible behind long pages. */
+.v-application,
+.v-application__wrap,
+.v-main.app-main,
+.v-main.app-main .v-container {
+  min-height: 100%;
+  background: transparent !important;
+}
+
+.v-main.app-main {
+  min-height: calc(100vh - 64px);
+}
+
 .ai-core-orb {
   animation: liquid-morph 8s infinite var(--liquid-ease);
   box-shadow: 0 0 30px rgba(0, 242, 255, 0.2);

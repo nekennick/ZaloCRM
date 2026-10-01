@@ -70,7 +70,7 @@
     </v-navigation-drawer>
 
     <!-- Main content -->
-    <v-main>
+    <v-main class="app-main">
       <v-container fluid>
         <slot />
       </v-container>
@@ -107,7 +107,7 @@ const menuItems = [
   { title: 'Lịch hẹn', icon: 'mdi-calendar-clock-outline', path: '/appointments' },
   { title: 'Đơn hàng', icon: 'mdi-cart-outline', path: '/orders' },
   { title: 'Báo cáo', icon: 'mdi-chart-arc', path: '/reports' },
-  { title: 'Nhân viên', icon: 'mdi-account-cog-outline', path: '/settings' },
+  { title: 'Cài đặt', icon: 'mdi-cog-outline', path: '/settings' },
   { title: 'API & Webhook', icon: 'mdi-api', path: '/api-settings' },
 ];
 

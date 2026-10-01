@@ -39,10 +39,13 @@
           </v-avatar>
           <div v-else-if="msg.senderType !== 'self'" class="message-avatar-spacer mr-2" />
           <div class="message-stack">
-            <div v-if="conversation.threadType === 'group' && msg.senderType !== 'self' && !isGroupedWithPrevious(msg, index)" class="message-sender mb-1">
+            <div v-if="conversation.threadType === 'group' && msg.senderType !== 'self' && !isGroupedWithPrevious(msg, index) && getImageUrl(msg)" class="message-sender message-sender-outside mb-1">
               {{ msg.senderName || 'Unknown' }}
             </div>
             <div class="message-bubble" :class="msg.senderType === 'self' ? 'message-self' : 'message-contact'" @contextmenu.prevent.stop="openMessageMenu($event, msg)">
+              <div v-if="conversation.threadType === 'group' && msg.senderType !== 'self' && !isGroupedWithPrevious(msg, index) && !getImageUrl(msg)" class="message-sender message-sender-in-bubble">
+                {{ msg.senderName || 'Unknown' }}
+              </div>
               <div v-if="msg.replyTo" class="message-reply-quote">
                 <div class="message-reply-name">{{ replySenderName(msg.replyTo) }}</div>
                 <div class="message-reply-content">{{ replyText(msg.replyTo) }}</div>
@@ -53,7 +56,7 @@
               </div>
               <!-- Image -->
               <div v-else-if="getImageUrl(msg)">
-                <img :src="getImageUrl(msg)!" alt="Hình ảnh" class="chat-image" @click="previewImageUrl = getImageUrl(msg)!" />
+                <img :src="getImageUrl(msg)!" alt="Hình ảnh" class="chat-image" @click="openImagePreview(getImageUrl(msg)!, msg.id)" />
               </div>
               <!-- File/PDF -->
               <div v-else-if="getFileInfo(msg)" class="file-card">
@@ -189,10 +192,55 @@
     </template>
 
     <!-- Image preview dialog -->
-    <v-dialog v-model="showImagePreview" max-width="900" content-class="elevation-0">
-      <div class="text-center" @click="showImagePreview = false" style="cursor: pointer;">
-        <img :src="previewImageUrl" alt="Preview" style="max-width: 100%; max-height: 85vh; border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.5);" />
-        <div class="text-caption mt-2" style="color: #aaa;">Nhấn để đóng</div>
+    <v-dialog v-model="showImagePreview" fullscreen content-class="elevation-0">
+      <div class="image-preview-shell">
+        <div class="image-preview-main">
+          <div class="image-preview-titlebar">
+            <span>{{ currentPreviewImage?.senderName || 'Hình ảnh' }}</span>
+            <span class="image-preview-date">{{ currentPreviewImage ? formatPreviewDateTime(currentPreviewImage.sentAt) : '' }}</span>
+            <v-spacer />
+            <v-btn size="small" variant="text" icon="mdi-close" title="Đóng" @click="showImagePreview = false" />
+          </div>
+          <div
+            class="image-preview-canvas"
+            :class="{ 'is-zoomed': previewScale > 1, 'is-dragging': previewDragging }"
+            @wheel.prevent="zoomPreview"
+            @mousedown="startImageDrag"
+            @click.self="showImagePreview = false"
+          >
+            <img
+              :src="previewImageUrl"
+              alt="Xem ảnh"
+              class="image-preview-full"
+              :style="{ transform: `translate(${previewPosition.x}px, ${previewPosition.y}px) scale(${previewScale}) rotate(${previewRotation}deg)` }"
+              draggable="false"
+              @dragstart.prevent
+            />
+            <div class="image-preview-navigation">
+              <v-btn icon="mdi-chevron-up" size="small" variant="flat" :disabled="previewImageIndex <= 0" title="Ảnh trước" @click.stop="showPreviousImage" />
+              <v-btn icon="mdi-chevron-down" size="small" variant="flat" :disabled="previewImageIndex >= previewImages.length - 1" title="Ảnh sau" @click.stop="showNextImage" />
+            </div>
+          </div>
+          <div class="image-preview-toolbar">
+            <v-btn size="small" variant="text" icon="mdi-share-variant-outline" title="Sao chép liên kết ảnh" @click="sharePreviewImage" />
+            <v-btn size="small" variant="text" icon="mdi-download" title="Tải ảnh" @click="downloadPreviewImage" />
+            <span class="image-toolbar-divider" />
+            <v-btn size="small" variant="text" icon="mdi-rotate-right" title="Xoay ảnh" @click="previewRotation = (previewRotation + 90) % 360" />
+            <v-btn size="small" variant="text" icon="mdi-magnify-plus-outline" title="Phóng to" :disabled="previewScale >= 5" @click="changeImageZoom(1.2)" />
+            <v-btn size="small" variant="text" icon="mdi-magnify-minus-outline" title="Thu nhỏ" :disabled="previewScale <= 1" @click="changeImageZoom(0.84)" />
+            <span class="image-zoom-level">{{ Math.round(previewScale * 100) }}%</span>
+            <v-btn size="small" variant="text" icon="mdi-restore" title="Đặt lại ảnh" @click="resetImageZoom" />
+            <span class="image-preview-help">Cuộn để zoom · Kéo để di chuyển</span>
+          </div>
+        </div>
+        <aside class="image-preview-sidebar">
+          <template v-for="(image, index) in previewImages" :key="image.id">
+            <div v-if="isNewPreviewDay(image, index)" class="image-preview-day">{{ formatPreviewDay(image.sentAt) }}</div>
+            <button class="image-preview-thumbnail" :class="{ active: image.id === previewImageMessageId }" @click="selectPreviewImage(image)">
+              <img :src="image.url" :alt="`Ảnh ${index + 1}`" />
+            </button>
+          </template>
+        </aside>
       </div>
     </v-dialog>
 
@@ -234,6 +282,18 @@ const contextMenuPosition = ref({ x: 0, y: 0 });
 const messagesContainer = ref<HTMLElement | null>(null);
 const previewImageUrl = ref('');
 const showImagePreview = computed({ get: () => !!previewImageUrl.value, set: (v) => { if (!v) previewImageUrl.value = ''; } });
+const previewImageMessageId = ref<string | null>(null);
+const previewScale = ref(1);
+const previewPosition = ref({ x: 0, y: 0 });
+const previewRotation = ref(0);
+const previewDragging = ref(false);
+let previewDragStart: { x: number; y: number; positionX: number; positionY: number } | null = null;
+const previewImages = computed(() => props.messages.flatMap((message) => {
+  const url = getImageUrl(message);
+  return url ? [{ id: message.id, url, sentAt: message.sentAt, senderName: message.senderName }] : [];
+}));
+const previewImageIndex = computed(() => previewImages.value.findIndex((image) => image.id === previewImageMessageId.value));
+const currentPreviewImage = computed(() => previewImages.value[previewImageIndex.value] || null);
 const syncSnack = ref({ show: false, text: '', color: 'success' });
 
 // AI Suggest state
@@ -280,6 +340,103 @@ function clearSelectedFile() {
   if (selectedImagePreview.value) URL.revokeObjectURL(selectedImagePreview.value);
   selectedImagePreview.value = '';
   selectedFile.value = null;
+}
+
+function openImagePreview(url: string, messageId: string) {
+  previewImageUrl.value = url;
+  previewImageMessageId.value = messageId;
+  resetImageZoom();
+}
+
+function resetImageZoom() {
+  previewScale.value = 1;
+  previewPosition.value = { x: 0, y: 0 };
+  previewRotation.value = 0;
+}
+
+function zoomPreview(event: WheelEvent) {
+  changeImageZoom(event.deltaY < 0 ? 1.16 : 0.86);
+}
+
+function changeImageZoom(factor: number) {
+  previewScale.value = Math.min(5, Math.max(1, previewScale.value * factor));
+  if (previewScale.value === 1) previewPosition.value = { x: 0, y: 0 };
+}
+
+function selectPreviewImage(image: { id: string; url: string }) {
+  previewImageMessageId.value = image.id;
+  previewImageUrl.value = image.url;
+  resetImageZoom();
+}
+
+function showPreviousImage() {
+  const image = previewImages.value[previewImageIndex.value - 1];
+  if (image) selectPreviewImage(image);
+}
+
+function showNextImage() {
+  const image = previewImages.value[previewImageIndex.value + 1];
+  if (image) selectPreviewImage(image);
+}
+
+function formatPreviewDay(date: string) {
+  const value = new Date(date);
+  const today = new Date();
+  if (value.toDateString() === today.toDateString()) return 'Hôm nay';
+  const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
+  if (value.toDateString() === yesterday.toDateString()) return 'Hôm qua';
+  return value.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' });
+}
+
+function formatPreviewDateTime(date: string) {
+  return new Date(date).toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
+function isNewPreviewDay(image: { sentAt: string }, index: number) {
+  return index === 0 || formatPreviewDay(image.sentAt) !== formatPreviewDay(previewImages.value[index - 1].sentAt);
+}
+
+async function sharePreviewImage() {
+  try {
+    if (navigator.share) await navigator.share({ title: 'Hình ảnh YagamiCRM', url: previewImageUrl.value });
+    else {
+      await navigator.clipboard.writeText(previewImageUrl.value);
+      syncSnack.value = { show: true, text: 'Đã sao chép liên kết ảnh', color: 'success' };
+    }
+  } catch { /* User closed the share dialog or clipboard is unavailable. */ }
+}
+
+function downloadPreviewImage() {
+  const link = document.createElement('a');
+  link.href = previewImageUrl.value;
+  link.download = 'yagami-image-' + Date.now();
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
+
+function startImageDrag(event: MouseEvent) {
+  if (previewScale.value <= 1 || event.button !== 0) return;
+  event.preventDefault();
+  previewDragging.value = true;
+  previewDragStart = { x: event.clientX, y: event.clientY, positionX: previewPosition.value.x, positionY: previewPosition.value.y };
+  window.addEventListener('mousemove', dragImagePreview);
+  window.addEventListener('mouseup', stopImageDrag);
+}
+
+function dragImagePreview(event: MouseEvent) {
+  if (!previewDragStart) return;
+  previewPosition.value = {
+    x: previewDragStart.positionX + event.clientX - previewDragStart.x,
+    y: previewDragStart.positionY + event.clientY - previewDragStart.y,
+  };
+}
+
+function stopImageDrag() {
+  previewDragging.value = false;
+  previewDragStart = null;
+  window.removeEventListener('mousemove', dragImagePreview);
+  window.removeEventListener('mouseup', stopImageDrag);
 }
 
 function openMessageMenu(event: MouseEvent, message: Message) {
@@ -488,6 +645,7 @@ watch(() => props.messages.length, async () => { await nextTick(); if (messagesC
 onMounted(() => document.addEventListener('click', closeMessageMenu));
 onBeforeUnmount(() => {
   clearSelectedFile();
+  stopImageDrag();
   document.removeEventListener('click', closeMessageMenu);
 });
 </script>
@@ -500,12 +658,14 @@ onBeforeUnmount(() => {
 .chat-header-name { overflow: hidden; color: #172b4d; font-size: 0.96rem; text-overflow: ellipsis; white-space: nowrap; }
 .chat-header-status { margin-top: 1px; color: #738197; font-size: 0.7rem; }
 .chat-messages-area { padding: 18px 22px !important; background: #eef0f4; }
-.message-row { align-items: flex-end; margin-bottom: 8px; }
+.message-row { align-items: flex-start; margin-bottom: 8px; }
 .message-row.message-grouped { margin-top: -4px; margin-bottom: 4px; }
-.message-avatar { flex-shrink: 0; margin-bottom: 2px; border: 1px solid #d9dee5; }
+.message-avatar { flex-shrink: 0; border: 1px solid #d9dee5; }
 .message-avatar-spacer { flex: 0 0 32px; width: 32px; }
 .message-stack { max-width: 66%; min-width: 0; }
-.message-sender { padding-left: 12px; color: #5f6f86; font-size: 0.72rem; font-weight: 500; }
+.message-sender { color: #5f6f86; font-size: 0.72rem; font-weight: 500; }
+.message-sender-outside { width: fit-content; padding: 2px 8px; margin-left: 1px; background: #fff; border-radius: 9px; box-shadow: 0 1px 2px rgba(28, 39, 54, 0.08); }
+.message-sender-in-bubble { margin-bottom: 5px; }
 .message-bubble { padding: 9px 13px; overflow: hidden; color: #223553; font-size: 0.9rem; line-height: 1.42; word-wrap: break-word; border: 1px solid #d9dee5; border-radius: 8px; box-shadow: 0 1px 1px rgba(28, 39, 54, 0.07); }
 .message-contact { background: #fff; }
 .message-self { background: #d9efff; border-color: #c8e3f7; }
@@ -523,6 +683,33 @@ onBeforeUnmount(() => {
 .location-coordinates { margin-top: 4px; opacity: 0.55; }
 .chat-image { display: block; max-width: 100%; max-height: 300px; cursor: pointer; border-radius: 8px; transition: transform 0.2s; }
 .chat-image:hover { transform: scale(1.01); }
+.image-preview-shell { display: flex; width: 100vw; height: 100vh; overflow: hidden; color: #dce5f2; background: #111; }
+.image-preview-main { display: flex; flex: 1; flex-direction: column; min-width: 0; }
+.image-preview-titlebar { display: flex; align-items: center; min-height: 38px; padding: 0 12px; color: #eef3f9; font-size: 0.78rem; background: #2b2b2b; }
+.image-preview-date { margin-left: 12px; color: #9fa8b7; font-size: 0.7rem; }
+.image-preview-titlebar :deep(.v-btn), .image-preview-toolbar :deep(.v-btn) { color: #dce5f2; }
+.image-preview-canvas { position: relative; display: flex; flex: 1; align-items: center; justify-content: center; min-height: 0; overflow: hidden; cursor: zoom-in; background: #111; }
+.image-preview-canvas.is-zoomed { cursor: grab; }
+.image-preview-canvas.is-dragging { cursor: grabbing; }
+.image-preview-full { display: block; max-width: calc(100vw - 180px); max-height: calc(100vh - 105px); object-fit: contain; user-select: none; border-radius: 3px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5); transform-origin: center center; transition: transform 0.08s ease-out; }
+.image-preview-canvas.is-dragging .image-preview-full { transition: none; }
+.image-preview-navigation { position: absolute; right: 14px; display: flex; flex-direction: column; gap: 8px; }
+.image-preview-navigation :deep(.v-btn) { color: #dce5f2; background: rgba(0, 0, 0, 0.64); }
+.image-preview-toolbar { display: flex; align-items: center; gap: 4px; min-height: 52px; padding: 0 12px; background: #2b2b2b; }
+.image-toolbar-divider { width: 1px; height: 24px; margin: 0 8px; background: #737373; }
+.image-zoom-level { width: 40px; color: #c5cedc; font-size: 0.72rem; text-align: center; }
+.image-preview-help { margin-left: 10px; color: #9fa8b7; font-size: 0.7rem; }
+.image-preview-sidebar { width: 118px; padding: 10px 8px; overflow-y: auto; background: #232323; }
+.image-preview-day { margin: 7px 0 8px; color: #aeb8c6; font-size: 0.72rem; text-align: center; }
+.image-preview-thumbnail { display: block; width: 86px; height: 86px; padding: 0; margin: 0 auto 10px; overflow: hidden; cursor: pointer; background: transparent; border: 2px solid transparent; border-radius: 7px; }
+.image-preview-thumbnail.active { border-color: #fff; }
+.image-preview-thumbnail img { display: block; width: 100%; height: 100%; object-fit: cover; }
+
+@media (max-width: 700px) {
+  .image-preview-sidebar { display: none; }
+  .image-preview-full { max-width: 96vw; }
+  .image-preview-help { display: none; }
+}
 .message-context-menu { position: fixed; z-index: 2500; min-width: 190px; overflow: hidden; color: #172b4d; background: #fff; border: 1px solid #dfe3e8; border-radius: 8px; box-shadow: 0 8px 24px rgba(28, 39, 54, 0.18); }
 .message-context-menu :deep(.v-list) { color: #172b4d; background: #fff !important; }
 .message-context-menu :deep(.v-list-item:hover) { background: #f2f6fa; }

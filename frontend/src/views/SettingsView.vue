@@ -9,6 +9,10 @@
       <v-tab value="users">Nhân viên</v-tab>
       <v-tab value="teams">Đội nhóm</v-tab>
       <v-tab value="org">Tổ chức</v-tab>
+      <v-tab v-if="authStore.isAdmin" value="notifications">
+        <v-icon class="mr-1" size="18">mdi-bell-cog-outline</v-icon>
+        Thông báo
+      </v-tab>
       <v-tab value="ai">
         <v-icon class="mr-1" size="18">mdi-robot-outline</v-icon>
         AI Copilot
@@ -129,7 +133,45 @@
         <OrgSettings />
       </v-window-item>
 
-      <!-- Tab 4: AI Copilot settings -->
+      <!-- Tab 4: Notification settings -->
+      <v-window-item v-if="authStore.isAdmin" value="notifications">
+        <v-card class="pa-4" max-width="720">
+          <v-card-title class="d-flex align-center">
+            <v-icon class="mr-2" color="info">mdi-bell-cog-outline</v-icon>
+            Nội dung thông báo
+          </v-card-title>
+          <v-card-subtitle class="mb-4">
+            Chọn các loại thông báo hiển thị trên biểu tượng chuông cho toàn bộ nhân viên.
+          </v-card-subtitle>
+          <v-divider />
+          <v-switch
+            v-model="unrepliedConversationsEnabled"
+            class="mt-4"
+            color="primary"
+            :loading="notificationSettingsLoading"
+            hide-details
+            label="Hiển thị thông báo cuộc trò chuyện chưa trả lời"
+            @update:model-value="saveNotificationSettings"
+          />
+          <div class="text-caption text-medium-emphasis mt-2 ml-1">
+            Tắt mục này để ẩn cảnh báo tin nhắn chưa được phản hồi quá 30 phút và cập nhật số trên chuông thông báo.
+          </div>
+          <v-alert v-if="notificationSettingsSuccess" type="success" variant="tonal" density="compact" class="mt-4" closable @click:close="notificationSettingsSuccess = ''">
+            {{ notificationSettingsSuccess }}
+          </v-alert>
+          <v-alert v-if="notificationSettingsError" type="error" variant="tonal" density="compact" class="mt-4" closable @click:close="notificationSettingsError = ''">
+            {{ notificationSettingsError }}
+          </v-alert>
+          <v-divider class="my-6" />
+          <div class="text-subtitle-1 font-weight-medium mb-1">Cập nhật dự án</div>
+          <div class="text-caption text-medium-emphasis mb-3">Chuông thông báo tự đồng bộ các cập nhật mới. Mỗi người chỉ thấy một bản cập nhật cho đến khi bấm xem.</div>
+          <v-btn variant="tonal" color="info" prepend-icon="mdi-history" @click="router.push('/project-updates')">
+            Xem chi tiết cập nhật
+          </v-btn>
+        </v-card>
+      </v-window-item>
+
+      <!-- Tab 5: AI Copilot settings -->
       <v-window-item value="ai">
         <v-card class="pa-4">
           <v-card-title class="d-flex align-center">
@@ -188,11 +230,14 @@
 import { ref, onMounted } from 'vue';
 import { useUsers, type OrgUser } from '@/composables/use-users';
 import { useAuthStore } from '@/stores/auth';
+import { useRouter } from 'vue-router';
 import TeamManagement from '@/components/settings/TeamManagement.vue';
 import OrgSettings from '@/components/settings/OrgSettings.vue';
+import { api } from '@/api/index';
 
 const { users, loading, error, fetchUsers, createUser, updateUser, resetPassword, deleteUser } = useUsers();
 const authStore = useAuthStore();
+const router = useRouter();
 
 const tab = ref('users');
 const showCreate = ref(false);
@@ -211,6 +256,10 @@ const aiPromptSaving = ref(false);
 const aiPromptIsDefault = ref(true);
 const aiSettingsSuccess = ref('');
 const aiSettingsError = ref('');
+const unrepliedConversationsEnabled = ref(true);
+const notificationSettingsLoading = ref(false);
+const notificationSettingsSuccess = ref('');
+const notificationSettingsError = ref('');
 
 const form = ref({ fullName: '', email: '', password: '', role: 'member' });
 
@@ -230,10 +279,12 @@ const headers = [
 // Load AI prompt when switching to AI tab
 import { watch } from 'vue';
 watch(tab, async (val) => {
+  if (val === 'notifications') {
+    await fetchNotificationSettings();
+  }
   if (val === 'ai' && !aiPrompt.value) {
     aiPromptLoading.value = true;
     try {
-      const { api } = await import('@/api/index');
       const res = await api.get('/ai/prompt');
       aiPrompt.value = res.data.prompt || '';
       aiPromptIsDefault.value = res.data.isDefault ?? true;
@@ -250,7 +301,6 @@ async function saveAIPrompt() {
   aiSettingsSuccess.value = '';
   aiSettingsError.value = '';
   try {
-    const { api } = await import('@/api/index');
     await api.put('/ai/prompt', { prompt: aiPrompt.value });
     aiSettingsSuccess.value = 'Đã lưu System Prompt thành công!';
     aiPromptIsDefault.value = false;
@@ -260,6 +310,38 @@ async function saveAIPrompt() {
     aiPromptSaving.value = false;
   }
 }
+
+async function fetchNotificationSettings() {
+  notificationSettingsLoading.value = true;
+  notificationSettingsError.value = '';
+  try {
+    const res = await api.get('/notifications/settings');
+    unrepliedConversationsEnabled.value = res.data.unrepliedConversationsEnabled !== false;
+  } catch (err: any) {
+    notificationSettingsError.value = err.response?.data?.error || 'Không thể tải cài đặt thông báo';
+  } finally {
+    notificationSettingsLoading.value = false;
+  }
+}
+
+async function saveNotificationSettings() {
+  if (notificationSettingsLoading.value) return;
+  notificationSettingsLoading.value = true;
+  notificationSettingsSuccess.value = '';
+  notificationSettingsError.value = '';
+  try {
+    await api.put('/notifications/settings', { unrepliedConversationsEnabled: unrepliedConversationsEnabled.value });
+    notificationSettingsSuccess.value = unrepliedConversationsEnabled.value
+      ? 'Đã bật thông báo cuộc trò chuyện chưa trả lời.'
+      : 'Đã ẩn thông báo cuộc trò chuyện chưa trả lời.';
+  } catch (err: any) {
+    notificationSettingsError.value = err.response?.data?.error || 'Không thể lưu cài đặt thông báo';
+    await fetchNotificationSettings();
+  } finally {
+    notificationSettingsLoading.value = false;
+  }
+}
+
 
 function roleColor(role: string) {
   if (role === 'owner') return 'primary';
